@@ -30,6 +30,18 @@ def raw_gain_tradeoff_rows():
     return rows
 
 
+def parity_rows():
+    """Three categorical bits require three levels when zero gain is allowed."""
+    return [[a, b, c, "yes" if (a + b + c) % 2 else "no"]
+            for a in (0, 1) for b in (0, 1) for c in (0, 1)]
+
+
+def tree_depth(tree):
+    if tree.attribute is None:
+        return 0
+    return 1 + max(tree_depth(child) for child in tree.children.values())
+
+
 class DecisionTreeNotebookTests(unittest.TestCase):
     use_gain_ratio = False
 
@@ -137,7 +149,11 @@ class DecisionTreeNotebookTests(unittest.TestCase):
     def test_training_uses_direct_recursion_without_nested_helpers(self):
         module = ast.parse("".join(self.cells[3]["source"]))
         training = next(node for node in module.body
-                        if isinstance(node, ast.FunctionDef) and node.name == "decision_tree")
+                         if isinstance(node, ast.FunctionDef) and node.name == "decision_tree")
+        self.assertEqual([argument.arg for argument in training.args.args],
+                         ["D", "A", "min_gain", "max_depth", "min_samples_split", "depth"])
+        self.assertEqual([ast.literal_eval(value) for value in training.args.defaults],
+                         [1e-12, None, 2, 0])
         self.assertFalse(any(isinstance(node, ast.FunctionDef)
                              for statement in training.body for node in ast.walk(statement)))
         self.assertFalse(any(isinstance(node, (ast.Raise, ast.Assert))
@@ -149,9 +165,21 @@ class DecisionTreeNotebookTests(unittest.TestCase):
                  and node.func.id == "decision_tree"]
         self.assertEqual(len(calls), 1)
         self.assertEqual([argument.id for argument in calls[0].args],
-                         ["group", "remaining", "min_gain"])
+                          ["group", "remaining", "min_gain"])
+        self.assertEqual([(keyword.arg, ast.unparse(keyword.value))
+                          for keyword in calls[0].keywords],
+                         [("max_depth", "max_depth"),
+                          ("min_samples_split", "min_samples_split"),
+                          ("depth", "depth + 1")])
         helpers = {node.name for node in module.body if isinstance(node, ast.FunctionDef)}
         self.assertTrue({"predict_one", "print_tree"} <= helpers)
+        example = next(node.value for node in module.body if isinstance(node, ast.Assign)
+                       and any(isinstance(target, ast.Name) and target.id == "tree"
+                               for target in node.targets))
+        self.assertEqual([argument.id for argument in example.args], ["D", "A"])
+        self.assertEqual({keyword.arg: ast.literal_eval(keyword.value)
+                          for keyword in example.keywords},
+                         {"max_depth": None, "min_samples_split": 2})
 
     def test_criterion_switch_changes_high_cardinality_choice(self):
         rows = [
@@ -255,6 +283,79 @@ class DecisionTreeNotebookTests(unittest.TestCase):
             [predict(self.namespace["tree"], row[:-1]) for row in self.namespace["D"]],
             [row[-1] for row in self.namespace["D"]],
         )
+
+    def test_reached_depth_limit_returns_current_majority(self):
+        rows = [["a", "no"], ["b", "yes"], ["c", "yes"]]
+        for maximum, depth in ((0, 0), (2, 2), (2, 3)):
+            with self.subTest(max_depth=maximum, depth=depth):
+                tree = self.train(rows, [0], max_depth=maximum, depth=depth)
+                self.assertIsNone(tree.attribute)
+                self.assertEqual(tree.prediction, "yes")
+                self.assertEqual(tree.children, {})
+                self.assertEqual(self.namespace["predict_one"](tree, ["unseen"]), "yes")
+
+    def test_depth_limits_bound_tree_height(self):
+        rows = parity_rows()
+        for maximum, expected in ((0, 0), (1, 1), (2, 2), (3, 3), (None, 3)):
+            with self.subTest(max_depth=maximum):
+                tree = self.train(rows, [0, 1, 2], min_gain=0, max_depth=maximum)
+                self.assertEqual(tree_depth(tree), expected)
+                if maximum is None or maximum == 3:
+                    self.assertEqual(
+                        [self.namespace["predict_one"](tree, row[:-1]) for row in rows],
+                        [row[-1] for row in rows],
+                    )
+
+    def test_depth_one_uses_descendant_majority_not_root_majority(self):
+        tree = self.train(self.namespace["D"], self.namespace["A"], max_depth=1)
+        self.assertEqual(tree.attribute, 0)
+        self.assertEqual(tree.prediction, "yes")
+        self.assertTrue(all(child.attribute is None for child in tree.children.values()))
+        self.assertEqual(tree.children["sunny"].prediction, "no")
+        self.assertEqual(tree.children["rain"].prediction, "yes")
+        self.assertEqual(self.namespace["predict_one"](tree,
+                         ["sunny", "cool", "normal", "weak"]), "no")
+
+    def test_sample_minimum_boundary_allows_equality(self):
+        rows = [["a", "no"], ["b", "yes"], ["c", "yes"], ["d", "yes"]]
+        for minimum, expected_attribute in ((3, 0), (4, 0), (5, None)):
+            with self.subTest(min_samples_split=minimum):
+                tree = self.train(rows, [0], min_samples_split=minimum)
+                self.assertEqual(tree.attribute, expected_attribute)
+                self.assertEqual(tree.prediction, "yes")
+                self.assertEqual(set(tree.children), set() if minimum == 5
+                                 else {"a", "b", "c", "d"})
+
+    def test_sample_minimum_is_node_local_not_a_minimum_leaf_size(self):
+        for minimum, expected_sunny_attribute in ((5, 2), (6, None)):
+            with self.subTest(min_samples_split=minimum):
+                tree = self.train(self.namespace["D"], self.namespace["A"],
+                                  min_samples_split=minimum)
+                self.assertEqual(tree.attribute, 0)
+                sunny = tree.children["sunny"]  # Five rows, unlike the 14-row root.
+                self.assertEqual(sunny.attribute, expected_sunny_attribute)
+                self.assertEqual(sunny.prediction, "no")
+                if minimum == 5:
+                    # Equality permits children with only three and two training rows.
+                    self.assertEqual(set(sunny.children), {"high", "normal"})
+                    self.assertEqual(sunny.children["high"].prediction, "no")
+                    self.assertEqual(sunny.children["normal"].prediction, "yes")
+                else:
+                    self.assertEqual(sunny.children, {})
+
+    def test_depth_and_sample_stops_combine(self):
+        for maximum, minimum, expected in ((1, 2, 1), (2, 5, 1), (0, 9, 0), (2, 4, 2)):
+            with self.subTest(max_depth=maximum, min_samples_split=minimum):
+                tree = self.train(parity_rows(), [0, 1, 2], min_gain=0,
+                                  max_depth=maximum, min_samples_split=minimum)
+                self.assertEqual(tree_depth(tree), expected)
+
+    def test_original_positional_min_gain_remains_compatible(self):
+        rows = [["a", "no"], ["a", "yes"], ["a", "yes"]]
+        tree = self.namespace["decision_tree"](rows, [0], 0)
+        self.assertEqual(tree.attribute, 0)
+        self.assertEqual(tree.children["a"].prediction, "yes")
+        self.assertIsNone(tree.children["a"].attribute)
 
     def test_gain_equal_to_threshold_still_splits(self):
         rows = [["a", "no"], ["b", "yes"]]
