@@ -1,4 +1,4 @@
-"""Test the notebook's literal recursive decision-tree algorithm.
+"""Test the recursive decision tree under both documented criterion settings.
 
 Run with: python -m unittest -v test_decision_tree.py
 """
@@ -12,16 +12,42 @@ import unittest
 
 
 NOTEBOOK = Path(__file__).with_name("decision-tree.ipynb")
+SCORE_LINES = (
+    "            score = gain  # Information Gain\n",
+    "            # score = gain / split_info if split_info else 0.0  # Gain Ratio\n",
+)
+
+
+def raw_gain_tradeoff_rows():
+    """A rare branch wins Gain Ratio despite having less raw gain."""
+    rows = (
+        [["left", "common", "yes"] for _ in range(30)]
+        + [["left", "common", "no"] for _ in range(20)]
+        + [["right", "common", "yes"] for _ in range(20)]
+        + [["right", "common", "no"] for _ in range(30)]
+    )
+    rows[0][1] = "rare"
+    return rows
 
 
 class DecisionTreeNotebookTests(unittest.TestCase):
+    use_gain_ratio = False
+
     def setUp(self):
-        source = NOTEBOOK.read_text(encoding="utf-8")
-        self.assertTrue(source.strip(), "The notebook must contain valid notebook JSON.")
-        self.notebook = json.loads(source)
+        self.original_source = NOTEBOOK.read_text(encoding="utf-8")
+        self.assertTrue(self.original_source.strip(), "The notebook must contain valid notebook JSON.")
+        self.notebook = json.loads(self.original_source)
         self.cells = [
-            cell for cell in self.notebook["cells"] if cell["cell_type"] == "code"
+            dict(cell, source=cell["source"].copy())
+            for cell in self.notebook["cells"] if cell["cell_type"] == "code"
         ]
+        training_source = "".join(self.cells[3]["source"])
+        pair = "".join(SCORE_LINES)
+        self.assertEqual(training_source.count(pair), 1)
+        if self.use_gain_ratio:
+            switched = (SCORE_LINES[0].replace("score =", "# score =", 1)
+                        + SCORE_LINES[1].replace("# score =", "score =", 1))
+            self.cells[3]["source"] = training_source.replace(pair, switched, 1).splitlines(keepends=True)
         self.namespace = {}
         self.outputs = []
         for index, cell in enumerate(self.cells, start=1):
@@ -90,6 +116,24 @@ class DecisionTreeNotebookTests(unittest.TestCase):
         self.assertEqual(conditional(0, []), 0.0)
         self.assertEqual(conditional(0, [[1, "no"], [2, "yes"]], 1.5), 0.0)
 
+    def test_split_information_uses_branch_proportions(self):
+        split_info = self.namespace["split_information"]
+        cases = [
+            ([], 0.0),
+            ([["a", "yes"], ["a", "no"]], 0.0),
+            ([["a", "yes"], ["b", "yes"]], 1.0),
+            ([[i, "yes"] for i in range(4)], 2.0),
+            ([["a", "yes"]] * 3 + [["b", "yes"]], 0.8112781244591328),
+        ]
+        for rows, expected in cases:
+            with self.subTest(rows=rows):
+                self.assertAlmostEqual(split_info(0, rows), expected)
+
+    def test_criterion_switch_does_not_change_notebook_on_disk(self):
+        self.assertEqual(NOTEBOOK.read_text(encoding="utf-8"), self.original_source)
+        active = SCORE_LINES[1].replace("# score =", "score =", 1) if self.use_gain_ratio else SCORE_LINES[0]
+        self.assertIn(active, self.cells[3]["source"])
+
     def test_training_uses_direct_recursion_without_nested_helpers(self):
         module = ast.parse("".join(self.cells[3]["source"]))
         training = next(node for node in module.body
@@ -109,14 +153,15 @@ class DecisionTreeNotebookTests(unittest.TestCase):
         helpers = {node.name for node in module.body if isinstance(node, ast.FunctionDef)}
         self.assertTrue({"predict_one", "print_tree"} <= helpers)
 
-    def test_information_gain_not_gain_ratio_selects_attribute(self):
+    def test_criterion_switch_changes_high_cardinality_choice(self):
         rows = [
             [f"id-{i}", "low" if i < 4 else "high", "no" if i < 4 else "yes"]
             for i in range(8)
         ]
         tree = self.train(rows, [0, 1])
-        self.assertEqual(tree.attribute, 0)
-        self.assertEqual(set(tree.children), {row[0] for row in rows})
+        expected_attribute = 1 if self.use_gain_ratio else 0
+        self.assertEqual(tree.attribute, expected_attribute)
+        self.assertEqual(set(tree.children), {row[expected_attribute] for row in rows})
         self.assertTrue(all(child.attribute is None for child in tree.children.values()))
         self.assertEqual(
             [self.namespace["predict_one"](tree, row[:-1]) for row in rows],
@@ -124,17 +169,57 @@ class DecisionTreeNotebookTests(unittest.TestCase):
         )
         self.assertEqual(self.train(rows, [1, 0]).attribute, 1)
 
-    def test_largest_impurity_reduction_wins(self):
-        rows = (
-            [["left", "common", "yes"] for _ in range(30)]
-            + [["left", "common", "no"] for _ in range(20)]
-            + [["right", "common", "yes"] for _ in range(20)]
-            + [["right", "common", "no"] for _ in range(30)]
-        )
-        rows[0][1] = "rare"
+    def test_active_score_can_rank_differently_from_raw_gain(self):
+        rows = raw_gain_tradeoff_rows()
         tree = self.train(rows, [0, 1])
+        self.assertEqual(tree.attribute, 1 if self.use_gain_ratio else 0)
+        self.assertEqual(set(tree.children), {"common", "rare"} if self.use_gain_ratio
+                         else {"left", "right"})
+
+    def test_equal_scores_keep_first_attribute_order(self):
+        rows = [["a", "x", "no"], ["b", "y", "yes"]]
+        for attributes in ([0, 1], [1, 0]):
+            with self.subTest(attributes=attributes):
+                self.assertEqual(self.train(rows, attributes).attribute, attributes[0])
+
+    def test_minimum_uses_raw_gain_when_ratio_is_smaller(self):
+        rows = [[i, "no" if i < 4 else "yes"] for i in range(8)]
+        tree = self.train(rows, [0], min_gain=1.0)
+        # Raw gain is 1 bit; Gain Ratio is 1/3, below the same threshold.
         self.assertEqual(tree.attribute, 0)
-        self.assertEqual(set(tree.children), {"left", "right"})
+        self.assertEqual(set(tree.children), set(range(8)))
+
+    def test_minimum_uses_raw_gain_when_ratio_is_larger(self):
+        rows = [["common", "no"] for _ in range(7)] + [["rare", "yes"]]
+        tree = self.train(rows, [0], min_gain=0.75)
+        # Raw gain is about 0.544 bits, below the threshold; Gain Ratio is 1.
+        self.assertIsNone(tree.attribute)
+        self.assertEqual(tree.prediction, "no")
+        self.assertEqual(tree.children, {})
+
+    def test_minimum_applies_to_selected_attribute_without_substitution(self):
+        tree = self.train(raw_gain_tradeoff_rows(), [0, 1], min_gain=0.02)
+        # Attribute 0 has raw gain about 0.029; attribute 1 has about 0.010.
+        if self.use_gain_ratio:
+            self.assertIsNone(tree.attribute)
+            self.assertEqual(tree.prediction, "yes")
+            self.assertEqual(tree.children, {})
+        else:
+            self.assertEqual(tree.attribute, 0)
+
+    def test_raw_gain_minimum_is_local_to_each_node(self):
+        rows = (
+            [["large", "a", "no"] for _ in range(45)]
+            + [["large", "b", "no"] for _ in range(45)]
+            + [["small", "a", "yes"] for _ in range(5)]
+            + [["small", "b", "no"] for _ in range(5)]
+        )
+        tree = self.train(rows, [0, 1], min_gain=0.15)
+        self.assertEqual(tree.attribute, 0)
+        # The small child's local gain is 1, not its root-weighted value 0.1.
+        self.assertEqual(tree.children["small"].attribute, 1)
+        self.assertEqual(tree.children["small"].children["a"].prediction, "yes")
+        self.assertEqual(tree.children["small"].children["b"].prediction, "no")
 
     def test_numbers_form_value_branches_without_thresholds(self):
         rows = [[1, "no"], [2, "no"], [3, "yes"], [4, "yes"], [5, "no"], [6, "no"]]
@@ -205,7 +290,7 @@ class DecisionTreeNotebookTests(unittest.TestCase):
         self.assertEqual(child.prediction, "yes")
         self.assertEqual(child.children, {})
 
-    def test_final_cell_reports_only_held_out_accuracy(self):
+    def test_final_cell_reports_held_out_accuracy_and_predictions(self):
         matrix = self.namespace["test_matrix"]
         self.assertEqual(matrix[0], self.namespace["columns"])
         training = {tuple(row) for row in self.namespace["D"]}
@@ -216,7 +301,14 @@ class DecisionTreeNotebookTests(unittest.TestCase):
         ]
         self.assertEqual(predictions, [row[-1] for row in matrix[1:]])
         self.assertEqual(self.namespace["accuracy"], 1.0)
-        self.assertEqual(self.outputs[-1], "Accuracy: 100.00%\n")
+        self.assertEqual(self.outputs[-1],
+                         "Accuracy: 100.00%\n['no', 'yes', 'yes', 'yes', 'no', 'yes']\n")
+
+
+class DecisionTreeGainRatioNotebookTests(DecisionTreeNotebookTests):
+    """Run the same regression suite with only the documented line switch."""
+
+    use_gain_ratio = True
 
 
 if __name__ == "__main__":
