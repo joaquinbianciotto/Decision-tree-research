@@ -65,13 +65,13 @@ does not override the new active minimum contract or reopen completed controls.
 - [x] **T2 — Stopping parameters:** add depth and minimum-sample controls,
   recursive propagation, boundary tests, and usage documentation.
   Route: delegated direct; same two-file writer trigger. Commit: `7eb4f0a`.
-- [ ] **T3 — Root-weighted minimum:** initialize/propagate original training N,
+- [x] **T3 — Root-weighted minimum:** initialize/propagate original training N,
   apply the weighted selected-gain threshold, revise local-only regression and
   notebook explanations, and retain ranking/control/output regressions.
   Route: delegated direct; notebook and tests are two non-trivial files, and
-  preparation belongs to the same bounded writer. Commit: pending.
+  preparation belongs to the same bounded writer. Commit: `3281caa`.
   Parent read both preparation artifacts and authorized source implementation.
-  Implementation checks are recorded below; verification/commit remain parent-owned.
+  Parent independently verified, committed, and reviewed this unit; evidence is below.
 
 ## Delivery and review evidence
 
@@ -82,13 +82,14 @@ does not override the new active minimum contract or reopen completed controls.
 - Local tracker: `feat/dt-criteria-stopping`; T1: `feat/dt-criteria` from tracker;
   T2: `feat/dt-stopping-parameters` from T1; T3: `feat/dt-weighted-min-gain` from
   T2's doc-closeout boundary `f9f89a9`. No PRs, push, or merges authorized.
-- Running committed authored count: 619 through `f9f89a9`: implementation 545
-  (T1: 270 additions + 34 deletions = 304; T2: 221 + 20 = 241, including T1
-  tracking updates) plus the separately accounted doc-only closeout 60 + 14 = 74.
+- Running committed authored count: 938 through `3281caa`: prior 619 through
+  `f9f89a9` plus T3's 267 additions + 52 deletions = 319. Prior 619 comprises
+  T1 304 + T2 241 + the separately accounted doc-only closeout 74.
+  This bounded count excludes any subsequent documentation-only snapshot commit.
 - The documentation-only closeout was committed as `f9f89a9`, not left pending.
   Parent assessment was passive/non_executable_only, `review_due=false`.
 - RDD: on, deciding source default. Native assessment/review is parent-owned.
-- Last reviewed implementation boundary: `7eb4f0a`. Both implementation candidates
+- Last reviewed implementation boundary: `3281caa`. All three implementation candidates
   were independently assessed high, explicitly consented, four-lens reviewed,
   and acknowledged with authority burned by the parent. No correction was required.
 - Rollback: revert each work-unit commit without touching RF or dependencies.
@@ -104,9 +105,10 @@ and acknowledgement. Both implementation tasks are complete. Code is ready on
 the current dependent branch, not merged into `main` or the local tracker branch.
 The documentation-only closeout is complete at `f9f89a9`. After both preparation
 readbacks, parent authorized T3 source implementation on `feat/dt-weighted-min-gain`.
-The weighted minimum is now implemented and all 62 DT tests pass. Full discovery
-has only the known RF import error. T3 remains unchecked and uncommitted pending
-parent verification; its separate native assessment/consent is still parent-owned.
+T3 is complete at `3281caa`; parent independently repeated all 62 DT tests and
+closed its separately consented native review without findings or correction.
+The implementation full-suite result retains only the known RF import error.
+Code is ready on `feat/dt-weighted-min-gain`, unmerged and unpushed.
 T1/T2 implementation evidence below remains historical and valid for its boundaries.
 
 ### T1 implementation
@@ -233,7 +235,8 @@ T1/T2 implementation evidence below remains historical and valid for its boundar
 
 - Implementation tasks T1 and T2 are complete. `feat/dt-stopping-parameters`
   contains both units plus doc-only closeout `f9f89a9`; `feat/dt-criteria` holds T1
-  at `74ea6b6`. Current branch `feat/dt-weighted-min-gain` starts at `f9f89a9`.
+  at `74ea6b6`. Current branch `feat/dt-weighted-min-gain`, based on `f9f89a9`,
+  now contains completed T3 at `3281caa`.
   The user-selected feature-branch-chain slices and prior implementation are intact.
 - `main` and the local tracker branch `feat/dt-criteria-stopping` remain at
   `b524d86`. No merges, pushes, PRs, or remote operations occurred. Implementation
@@ -322,6 +325,7 @@ T1/T2 implementation evidence below remains historical and valid for its boundar
   63 reported tests in 0.059s, 62 passed, only the known baseline import error
   `unittest.loader._FailedTest.test_random_forest` from missing `sklearn` at
   `test_random_forest.py:12`. No RF notebook execution or installation attempted.
+  This is the writer's implementation run, not a fresh full rerun at closeout.
 - `git diff --check`: PASS, no reported whitespace errors.
 - `git diff --exit-code f9f89a9 -- random-forest.ipynb test_random_forest.py requirements.txt`:
   PASS, no differences.
@@ -340,7 +344,29 @@ T1/T2 implementation evidence below remains historical and valid for its boundar
 - Rollback boundary for T3: revert only weighted-minimum notebook/test/docs
   changes relative to `f9f89a9`, preserving T1/T2 controls, reviews, RF, dependencies,
   and the now-completed closeout accounting.
-- Parent completed preparation readbacks and authorized source work; next parent
-  verifies and commits T3. The checkbox, commit, and separate native assessment/consent
-  remain pending. This writer claims no T3 approval, receipt, or delivery;
-  no branch change, staging, commit, review, delegation, or remote work was performed.
+- Completed boundary: `f9f89a9..3281caa`; full T3 commit
+  `3281caa63d8b074f2eb035f3129c68f80a344ae1`, message
+  `fix(dt): weight minimum gain by training sample share`. Notebook, DT tests,
+  and tracker: 267 additions + 52 deletions = 319 authored lines, zero output churn.
+- Parent inspected the complete structural diff, scope, and whitespace, then
+  independently repeated `PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest test_decision_tree -v`:
+  PASS, 62 tests in 0.058s. No other failed or skipped DT checks were reported.
+- Parent-recorded native committed assessment: high (`process_boundary` /
+  `shell_process` in `test_decision_tree.py`), `review_due=true` at assessment.
+  The user explicitly granted this exact T3 candidate, not carried consent.
+  All four concurrent lenses returned zero findings; no correction was needed.
+- Exact acknowledgement returned schema `gentle-ai.review-acknowledged/v1`,
+  `action=acknowledged`, and `authority=burned` for `review-3898f22503329a57`.
+  Target: `sha256:a034828d1d2fb0e61a0bc29c6c4f9aae9c6364d37b9c4c5f0ab9a5073b75308c`.
+  No further review lifecycle action remains for this target.
+- Writer restrictions applied to the writer: no staging, commits, branch changes,
+  reviews, delegation, installations, or remote operations. The parent performed
+  the actual local commit and completed native review recorded above.
+- Implementation is complete and ready on the dependent local branch, not merged
+  or pushed. The user can rerun the notebook and later authorize separate RF
+  changes; no empirical/full-model sklearn equivalence is claimed.
+- This recovery edits only the tracker and full mirror `4940`, with no source/test
+  edits or test reruns. Any later documentation-only snapshot is separately
+  accounted; its final commit identity and accounting are recorded externally
+  after creation, without reopening completed implementation work or inventing
+  its future hash, assessment, or size.
