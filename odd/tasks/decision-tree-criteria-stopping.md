@@ -5,7 +5,8 @@
 Extend the custom teaching Decision Tree with an easy Information Gain / Gain
 Ratio switch, maximum depth, and minimum samples for splitting. Information Gain
 remains active; the adjacent Gain Ratio assignment is commented out and uses the
-same score variable. Keep the existing minimum raw gain behavior.
+same score variable. T3 authorizes replacing the original node-local minimum with
+root-weighted Information Gain, while keeping attribute ranking node-local.
 
 - Edit `decision-tree.ipynb`, `test_decision_tree.py`, and this document only.
 - Do not modify Random Forest, its tests, requirements, or unrelated work.
@@ -15,8 +16,17 @@ same score variable. Keep the existing minimum raw gain behavior.
 ## Decisions and acceptance criteria
 
 - Normalize Gain Ratio by the entropy of branch proportions; handle zero safely.
-- Rank attributes by the active score; keep first-attribute tie behavior.
-- Preserve `min_gain=1e-12` as raw node-local Information Gain, including equality.
+- Rank attributes by local Information Gain or local Gain Ratio; keep the
+  existing assignment pair and first-attribute tie behavior unchanged.
+- Keep `min_gain=1e-12`, but apply it to the selected attribute's
+  `weighted_gain = len(D) / n_total * (p0 - pg)`. Stop only for `< min_gain`;
+  equality permits splitting. Never normalize this minimum by Gain Ratio.
+- Initialize optional `n_total=None` once from the original training `len(D)`;
+  every child receives that same original total, not its own or its parent's size.
+- Append `n_total` after the six existing arguments; preserve their positional
+  compatibility, all other defaults, and the existing direct recursion.
+- Use unit row counts only; no sample weights, RF changes, nested builder,
+  numerical split search, or validation/configuration framework are authorized.
 - Root depth is zero; `max_depth=None` is unlimited; zero creates a majority leaf.
 - `min_samples_split=2` by default; fewer samples create a majority leaf.
 - Propagate both stopping settings through direct recursion.
@@ -25,9 +35,15 @@ same score variable. Keep the existing minimum raw gain behavior.
 - Reconcile the stale stdout assertion with existing predictions and accuracy
   output in the DT test harness; do not change runtime output to hide the failure.
 
+The local-only minimum described in historical T1/T2 evidence was correct for
+those commits. The user explicitly accepted its replacement in T3; that history
+does not override the new active minimum contract or reopen completed controls.
+
 ## Testing configuration and baseline
 
 - TDD: **off for this feature**, explicitly selected by the user as `Sin TDD`.
+  Source: the original native user answer, Engram observation `4939`, and this
+  tracker. This carries into T3; existing tests do not establish another mode.
 - Runner: `unittest`, Python 3.14.7; ordinary functional tests remain required.
 - Focused: `PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest test_decision_tree -v`.
 - Full: `PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -v`.
@@ -49,19 +65,28 @@ same score variable. Keep the existing minimum raw gain behavior.
 - [x] **T2 — Stopping parameters:** add depth and minimum-sample controls,
   recursive propagation, boundary tests, and usage documentation.
   Route: delegated direct; same two-file writer trigger. Commit: `7eb4f0a`.
+- [ ] **T3 — Root-weighted minimum:** initialize/propagate original training N,
+  apply the weighted selected-gain threshold, revise local-only regression and
+  notebook explanations, and retain ranking/control/output regressions.
+  Route: delegated direct; notebook and tests are two non-trivial files, and
+  preparation belongs to the same bounded writer. Commit: pending.
+  Parent read both preparation artifacts and authorized source implementation.
+  Implementation checks are recorded below; verification/commit remain parent-owned.
 
 ## Delivery and review evidence
 
-- Initial authored forecast: T1 250–340 lines; T2 170–240; total 420–580 additions
+- Initial T1/T2 authored forecast: T1 250–340 lines; T2 170–240; total 420–580 additions
   plus deletions, including tracking and excluding saved-output churn.
 - About 400 lines per task is advisory, not a reason to omit tests or minify.
 - Delivery strategy: `ask-on-risk`; user selected `feature-branch-chain`.
 - Local tracker: `feat/dt-criteria-stopping`; T1: `feat/dt-criteria` from tracker;
-  T2: `feat/dt-stopping-parameters` from T1. No PRs, push, or merges authorized.
-- Running committed authored count: 545 (T1: 270 additions + 34 deletions = 304;
-  T2: 221 additions + 20 deletions = 241, including T1 tracking updates).
-- A documentation-only closeout commit is pending and separately accounted;
-  it is not included in 545. Its commit hash and final committed count do not exist yet.
+  T2: `feat/dt-stopping-parameters` from T1; T3: `feat/dt-weighted-min-gain` from
+  T2's doc-closeout boundary `f9f89a9`. No PRs, push, or merges authorized.
+- Running committed authored count: 619 through `f9f89a9`: implementation 545
+  (T1: 270 additions + 34 deletions = 304; T2: 221 + 20 = 241, including T1
+  tracking updates) plus the separately accounted doc-only closeout 60 + 14 = 74.
+- The documentation-only closeout was committed as `f9f89a9`, not left pending.
+  Parent assessment was passive/non_executable_only, `review_due=false`.
 - RDD: on, deciding source default. Native assessment/review is parent-owned.
 - Last reviewed implementation boundary: `7eb4f0a`. Both implementation candidates
   were independently assessed high, explicitly consented, four-lens reviewed,
@@ -77,7 +102,12 @@ T2 is complete on `feat/dt-stopping-parameters` at `7eb4f0a`; the parent indepen
 verified its structure, repeated all 54 DT tests, and completed its native review
 and acknowledgement. Both implementation tasks are complete. Code is ready on
 the current dependent branch, not merged into `main` or the local tracker branch.
-Only the documentation-only closeout commit remains pending.
+The documentation-only closeout is complete at `f9f89a9`. After both preparation
+readbacks, parent authorized T3 source implementation on `feat/dt-weighted-min-gain`.
+The weighted minimum is now implemented and all 62 DT tests pass. Full discovery
+has only the known RF import error. T3 remains unchecked and uncommitted pending
+parent verification; its separate native assessment/consent is still parent-owned.
+T1/T2 implementation evidence below remains historical and valid for its boundaries.
 
 ### T1 implementation
 
@@ -199,28 +229,118 @@ Only the documentation-only closeout commit remains pending.
   schema `gentle-ai.review-acknowledged/v1`, `action=acknowledged`, and
   `authority=burned`. No correction was required.
 
-### Final local state and next step
+### T1/T2 closeout snapshot and current branch state
 
-- Implementation tasks T1 and T2 are complete. The current dependent branch
-  `feat/dt-stopping-parameters` holds both units at `7eb4f0a`; `feat/dt-criteria`
-  holds T1 at `74ea6b6`. The user-selected feature-branch-chain slices are intact.
+- Implementation tasks T1 and T2 are complete. `feat/dt-stopping-parameters`
+  contains both units plus doc-only closeout `f9f89a9`; `feat/dt-criteria` holds T1
+  at `74ea6b6`. Current branch `feat/dt-weighted-min-gain` starts at `f9f89a9`.
+  The user-selected feature-branch-chain slices and prior implementation are intact.
 - `main` and the local tracker branch `feat/dt-criteria-stopping` remain at
   `b524d86`. No merges, pushes, PRs, or remote operations occurred. Implementation
   readiness on the dependent branch is not delivery into either base branch.
-- Final API: `decision_tree(D, A, min_gain=1e-12, max_depth=None,
-  min_samples_split=2, depth=0)`. Information Gain is active; the adjacent Gain
-  Ratio assignment is commented, with both assigning `score`. Raw node-local
-  `min_gain` remains unchanged. Root depth is zero; `None` is unlimited and the
+- Current implemented API: `decision_tree(D, A, min_gain=1e-12, max_depth=None,
+  min_samples_split=2, depth=0, n_total=None)`. Information Gain is active; the
+  adjacent Gain Ratio assignment is commented, with both assigning `score`.
+  T3 weights only the minimum by the node's fraction of original training rows;
+  local ranking is unchanged. Root depth is zero; `None` is unlimited and the
   sample minimum is strict and node-local, not a minimum leaf size.
 - On the current branch, open `decision-tree.ipynb` and edit the adjacent criterion
   assignments or the `max_depth` / `min_samples_split` values in the training call
   of `c45-algorithm`, then rerun the notebook cells. Keep `depth=0` as bookkeeping.
-- The final full-suite limitation remains the pre-existing missing-`sklearn` RF
-  import error: 54 DT passes plus one RF import error. No installation was
+- The last full-suite limitation remains the pre-existing missing-`sklearn` RF
+  import error: 62 DT passes plus one RF import error. No installation was
   authorized or performed; there are no other failures or skipped DT checks.
-- This recovery changes only this tracker and its full mirror at Engram `4940`,
-  with the repository-relative locator retained. Source/tests were not edited or
-  rerun after their closed implementation reviews.
-- A separately accounted documentation-only closeout commit remains pending;
-  the parent owns that commit. Any remote delivery remains human-owned and
-  requires separate authorization; no remote delivery is authorized here.
+- The earlier recovery changed only this tracker and full mirror `4940`; no
+  source/test edits or reruns occurred during that bookkeeping phase. The new T3
+  focused baseline is separately recorded below, without editing source/tests.
+- Doc-only closeout commit: `f9f89a9376f8496adb2f3d3e85b3738983e5667f`,
+  60 additions + 14 deletions = 74 authored lines; assessment passive,
+  `review_due=false`. It is complete and accounted separately from implementation.
+- Remote delivery remains human-owned and requires separate authorization;
+  no remote delivery or merges are authorized here.
+
+### T3 — root-weighted minimum
+
+- Same feature and writer; current branch `feat/dt-weighted-min-gain`, starting
+  boundary `f9f89a9376f8496adb2f3d3e85b3738983e5667f`. Preparation began clean;
+  implementation resumed with only the inherited tracker preparation modified.
+- Implemented signature: `decision_tree(D, A, min_gain=1e-12, max_depth=None,
+  min_samples_split=2, depth=0, n_total=None)`. The total initializes once when
+  absent, then passes unchanged through every existing recursive call.
+- After local score selection, `weighted_gain = len(D) / n_total * (p0 - pg)`
+  controls the strict `< min_gain` leaf guard. Root factor is one; descendants use
+  original N. Neither ranking assignment is weighted, and Gain Ratio never
+  replaces Information Gain in the minimum.
+- Existing multibranch conditional entropy supplies `pg`; all rows have unit
+  weight. No `sample_weight` support or other model expansion is included.
+
+#### Documentation contract and source references
+
+- Primary reference, scikit-learn 1.9.1 RandomForestClassifier API:
+  https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html
+  Its `min_impurity_decrease` formula uses `N_t / N` times the local reduction,
+  with N the total training count; equality permits a split. Counts are weighted
+  only if sample weights are supplied. The parent checked this source and this
+  preparation independently read the same official documentation.
+- This aligns threshold weighting only. Custom entropy/multibranch splitting
+  still differs from RF's current gini criterion, bootstrap, encoding, and split
+  topology. No sklearn runtime comparison, RF execution, or RF change was made.
+- At `f9f89a9`, notebook references: `impurityEval_2` at lines 156–161; old local
+  minimum explanation at 216–230; signature at 275–276; local ranking at 288–297;
+  minimum guard at 298–299; recursive forwarding at 306–311. Changes are confined
+  to signature/bookkeeping/guard/docs; the assignment pair is unchanged.
+- At that boundary, DT test lines 149–182 constrained the six-argument signature
+  and recursion; lines 238–250 required a local-only descendant split. The fixture
+  is retained in a shared helper and its regression now asserts weighted behavior.
+
+#### Tests and preservation
+
+- Both in-memory criterion variants run the shared suite; exact two-line
+  switching is preserved without writing the notebook during tests.
+- Root equivalence is tested with default/explicit original total and gain
+  equality/above-threshold cases; existing raw IG versus Gain Ratio cases remain.
+- The retained 100-row fixture proves its 10-row child's local gain is 1 and
+  root-weighted gain is 0.1. At minimum 0.15 it returns its own majority leaf;
+  at equality 0.1 it splits. Both cases retain root-split and majority-label proofs.
+- A 15-call trace of three-bit parity recursion proves original N=8 reaches all
+  4-row children, 2-row grandchildren, and 1-row leaves. Separate training calls
+  with 8 and 2 rows reinitialize their own total instead of sharing mutable state.
+- Runtime tests retain all six positional argument meanings; AST assertions
+  enforce the seventh default and unchanged `n_total` recursive forwarding.
+- All prior depth/sample, categorical, tie, prediction, nonmutation, and default
+  output proofs remain; structural/default-output checks below confirm preservation.
+
+#### Baseline, forecast, and handoff
+
+- Observed preparation baseline, run once in the foreground:
+  `PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest test_decision_tree -v`:
+  PASS, 54 tests in 0.051s on the pre-T3 local-only implementation. That baseline
+  was not rerun after interruption; it is not the final weighted-code result.
+- Final `PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest test_decision_tree -v`:
+  PASS, 62 tests in 0.058s under both criterion variants; no skipped DT checks.
+- Final `PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -v`:
+  63 reported tests in 0.059s, 62 passed, only the known baseline import error
+  `unittest.loader._FailedTest.test_random_forest` from missing `sklearn` at
+  `test_random_forest.py:12`. No RF notebook execution or installation attempted.
+- `git diff --check`: PASS, no reported whitespace errors.
+- `git diff --exit-code f9f89a9 -- random-forest.ipynb test_random_forest.py requirements.txt`:
+  PASS, no differences.
+- Preparation authored forecast: 280–380 additions plus deletions relative to
+  `f9f89a9`, including inherited preparation/reconciliation and final evidence: notebook
+  35–55, tests 90–135, tracker 155–190. Exclude saved-output churn, not tests or
+  explanatory lines. One coherent behavior/tests/docs slice; 400 lines is advisory.
+- Read-only comparison against `f9f89a9`: PASS, 11 cells/five code cells; all IDs,
+  metadata, execution counts, and saved outputs unchanged. Only `algorithm-description`
+  and `c45-algorithm` source changed; local ranking/pair, first-six defaults and
+  majority/prediction/display helpers are unchanged. In-memory execution confirms
+  complete default example stdout matches the base under both criteria.
+- Source-mutating normalization preceded final checks. No formatter was installed
+  or run, no unrelated JSON reformatting, saved-output churn, or bytecode writes.
+  Runtime boundary: all five notebook code cells execute in the focused test harness.
+- Rollback boundary for T3: revert only weighted-minimum notebook/test/docs
+  changes relative to `f9f89a9`, preserving T1/T2 controls, reviews, RF, dependencies,
+  and the now-completed closeout accounting.
+- Parent completed preparation readbacks and authorized source work; next parent
+  verifies and commits T3. The checkbox, commit, and separate native assessment/consent
+  remain pending. This writer claims no T3 approval, receipt, or delivery;
+  no branch change, staging, commit, review, delegation, or remote work was performed.
