@@ -10,7 +10,7 @@ same score variable. Keep the existing minimum raw gain behavior.
 - Edit `decision-tree.ipynb`, `test_decision_tree.py`, and this document only.
 - Do not modify Random Forest, its tests, requirements, or unrelated work.
 - No dependency installation, remote execution, push, pull request, or merge.
-- Branch: `feat/dt-criteria-stopping`; starting boundary: `b524d86`.
+- Local tracker branch: `feat/dt-criteria-stopping`; starting boundary: `b524d86`.
 
 ## Decisions and acceptance criteria
 
@@ -46,9 +46,9 @@ same score variable. Keep the existing minimum raw gain behavior.
   explanations, and reconcile the stale DT stdout expectation.
   Route: delegated direct; notebook + tests are two non-trivial files, and
   preparation belongs to the same bounded writer. Commit: `74ea6b6`.
-- [ ] **T2 — Stopping parameters:** add depth and minimum-sample controls,
+- [x] **T2 — Stopping parameters:** add depth and minimum-sample controls,
   recursive propagation, boundary tests, and usage documentation.
-  Route: delegated direct; same two-file writer trigger. Commit: pending.
+  Route: delegated direct; same two-file writer trigger. Commit: `7eb4f0a`.
 
 ## Delivery and review evidence
 
@@ -58,10 +58,14 @@ same score variable. Keep the existing minimum raw gain behavior.
 - Delivery strategy: `ask-on-risk`; user selected `feature-branch-chain`.
 - Local tracker: `feat/dt-criteria-stopping`; T1: `feat/dt-criteria` from tracker;
   T2: `feat/dt-stopping-parameters` from T1. No PRs, push, or merges authorized.
-- Running committed authored count: 304 (T1: 270 additions, 34 deletions).
+- Running committed authored count: 545 (T1: 270 additions + 34 deletions = 304;
+  T2: 221 additions + 20 deletions = 241, including T1 tracking updates).
+- A documentation-only closeout commit is pending and separately accounted;
+  it is not included in 545. Its commit hash and final committed count do not exist yet.
 - RDD: on, deciding source default. Native assessment/review is parent-owned.
-- Last reviewed boundary: `74ea6b6`; T1 assessed high, consent granted, reviewed,
-  and acknowledged with authority burned. T2 assessment/consent is independent.
+- Last reviewed implementation boundary: `7eb4f0a`. Both implementation candidates
+  were independently assessed high, explicitly consented, four-lens reviewed,
+  and acknowledged with authority burned by the parent. No correction was required.
 - Rollback: revert each work-unit commit without touching RF or dependencies.
 
 ## Progress and next step
@@ -69,9 +73,11 @@ same score variable. Keep the existing minimum raw gain behavior.
 T1 is complete on `feat/dt-criteria` at `74ea6b6`; the parent spot check passed
 all 40 DT tests. Native four-lens review found no issues and acknowledgement
 confirmed authority burned for lineage `review-ecd389460b7f5458`.
-T2 source and tests are implemented on `feat/dt-stopping-parameters`; its task
-remains unchecked and its commit is pending parent verification and creation.
-No T2 review, approval, receipt, or delivery is claimed.
+T2 is complete on `feat/dt-stopping-parameters` at `7eb4f0a`; the parent independently
+verified its structure, repeated all 54 DT tests, and completed its native review
+and acknowledgement. Both implementation tasks are complete. Code is ready on
+the current dependent branch, not merged into `main` or the local tracker branch.
+Only the documentation-only closeout commit remains pending.
 
 ### T1 implementation
 
@@ -120,12 +126,13 @@ No T2 review, approval, receipt, or delivery is claimed.
   `odd/decision-tree-criteria-stopping/tasks`.
 - Committed boundary: `b524d86..74ea6b6`; T1 includes notebook, tests, and docs.
 - Parent repeated the focused command: PASS, 40 tests in 0.034s.
-- Native committed assessment: high (`process_boundary`), review due; user granted
+- Native committed assessment: high (`process_boundary`), review was due; user granted
   this candidate's review. All four lenses reported no findings. Exact native
   acknowledgement returned `action=acknowledged` and `authority=burned`.
 - Earlier uncommitted assessment was unassessable due to the untracked tracker;
   it did not lower risk. Committed assessment resolved the inventory normally.
-- Proceed to T2; no push, PR, merge, or main change has occurred.
+- Historical handoff after T1: proceed to T2; no push, PR, merge, or main change
+  had occurred at that boundary.
 
 ### T2 implementation
 
@@ -175,6 +182,45 @@ No T2 review, approval, receipt, or delivery is claimed.
   inherited parent tracking edits and the complete T1 evidence in this unit.
 - Rollback boundary: restore T2 notebook/tests to `74ea6b6` and remove only T2
   progress text; retain parent T1 completion/review updates, RF, and dependencies.
-- T2 commit is pending. No staging, commits, branch changes, native review,
-  delegation, installation, remote operations, or delivery were performed.
-- Parent verifies and commits T2, then owns its separate assessment/consent/review.
+- During implementation, the T2 writer performed no staging, commits, branch
+  changes, native review, delegation, installation, remote operations, or delivery.
+  These writer constraints do not describe the parent's subsequent local actions.
+- The original handoff left parent verification, commit, and independent native
+  review pending; the parent has now completed all three without correction.
+- Committed boundary: `74ea6b6..7eb4f0a`; full T2 commit:
+  `7eb4f0a58cad26899e2ab54917313cb4f5817a76`.
+- Parent structural diff check: PASS. Parent independently repeated
+  `PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest test_decision_tree -v`:
+  PASS, 54 tests in 0.053s. No other failures or skipped DT checks were reported.
+- Parent-recorded native committed assessment: high (`process_boundary` /
+  `shell_process` in `test_decision_tree.py`). The user explicitly granted this
+  T2 candidate's review; all four lenses reported zero findings.
+- Exact native acknowledgement for lineage `review-6eb8dbdb78a1d773` returned
+  schema `gentle-ai.review-acknowledged/v1`, `action=acknowledged`, and
+  `authority=burned`. No correction was required.
+
+### Final local state and next step
+
+- Implementation tasks T1 and T2 are complete. The current dependent branch
+  `feat/dt-stopping-parameters` holds both units at `7eb4f0a`; `feat/dt-criteria`
+  holds T1 at `74ea6b6`. The user-selected feature-branch-chain slices are intact.
+- `main` and the local tracker branch `feat/dt-criteria-stopping` remain at
+  `b524d86`. No merges, pushes, PRs, or remote operations occurred. Implementation
+  readiness on the dependent branch is not delivery into either base branch.
+- Final API: `decision_tree(D, A, min_gain=1e-12, max_depth=None,
+  min_samples_split=2, depth=0)`. Information Gain is active; the adjacent Gain
+  Ratio assignment is commented, with both assigning `score`. Raw node-local
+  `min_gain` remains unchanged. Root depth is zero; `None` is unlimited and the
+  sample minimum is strict and node-local, not a minimum leaf size.
+- On the current branch, open `decision-tree.ipynb` and edit the adjacent criterion
+  assignments or the `max_depth` / `min_samples_split` values in the training call
+  of `c45-algorithm`, then rerun the notebook cells. Keep `depth=0` as bookkeeping.
+- The final full-suite limitation remains the pre-existing missing-`sklearn` RF
+  import error: 54 DT passes plus one RF import error. No installation was
+  authorized or performed; there are no other failures or skipped DT checks.
+- This recovery changes only this tracker and its full mirror at Engram `4940`,
+  with the repository-relative locator retained. Source/tests were not edited or
+  rerun after their closed implementation reviews.
+- A separately accounted documentation-only closeout commit remains pending;
+  the parent owns that commit. Any remote delivery remains human-owned and
+  requires separate authorization; no remote delivery is authorized here.
