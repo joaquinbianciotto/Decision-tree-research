@@ -232,13 +232,142 @@ class EnrichedTrainingTests(unittest.TestCase):
         cells = [c for c in notebook["cells"] if c["cell_type"] == "code"]
         self.ns, self.stdout, self.stderr = execute(cells)
 
-    def train(self, rows, attributes, **kwargs):
-        return self.ns["entrenar_arbol_enriquecido"](rows, attributes, **kwargs)
+    def train(self, rows, attributes, *args, **kwargs):
+        before = repr((rows, attributes, args, kwargs))
+        stdout, stderr = io.StringIO(), io.StringIO()
+        try:
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                return self.ns["entrenar_arbol_enriquecido"](rows, attributes, *args, **kwargs)
+        finally:
+            self.assertEqual(repr((rows, attributes, args, kwargs)), before)
+            self.assertEqual((stdout.getvalue(), stderr.getvalue()), ("", ""))
 
     def probabilities(self, tree, row):
         result = self.ns["predecir_probabilidades_enriquecido"](tree, row)
         self.assertAlmostEqual(sum(result.values()), 1)
         return result
+
+    def depth(self, tree):
+        return 0 if tree.attribute is None else 1 + max(self.depth(c) for c in tree.children.values())
+
+    def weighted_three_level_rows(self):
+        rows = [[a, b, c, "yes" if a and (not b or c) else "no"]
+                for a in (0, 1) for b in (0, 1) for c in (0, 1)]
+        return rows, [20, 20, 20, 20, 7.5, 7.5, 2.5, 2.5]
+
+    def test_max_depth_starts_at_zero_and_reaches_descendants_with_or_without_pruning(self):
+        rows, weights = self.weighted_three_level_rows()
+        for maximum, expected in ((None, 3), (0, 0), (1, 1), (2, 2), (3, 3)):
+            for prune in (False, True):
+                with self.subTest(maximum=maximum, prune=prune):
+                    tree = self.train(rows, [0, 1, 2], pesos=weights,
+                                      max_depth=maximum, podar=prune)
+                    self.assertLessEqual(self.depth(tree), expected)
+                    if not prune:
+                        self.assertEqual(self.depth(tree), expected)
+                    self.assertEqual(tree.prediction, "no")
+                    self.assertEqual(tree.total_weight, 100)
+                    if maximum == 1 and not prune:
+                        self.assertEqual(tree.children[1].prediction, "yes")
+                        self.assertEqual(self.probabilities(tree, [1, None, None]),
+                                         {"yes": .875, "no": .125})
+
+    def test_min_samples_split_counts_node_rows_not_weight_or_leaf_size(self):
+        rows = [["left", "a", "no"], ["left", "b", "yes"],
+                ["right", "a", "yes"], ["right", "b", "yes"]]
+        for minimum, expected_depth in ((2, 2), (3, 1), (4, 1), (5, 0)):
+            for weight in (.1, 100):
+                for prune in (False, True):
+                    with self.subTest(minimum=minimum, weight=weight, prune=prune):
+                        tree = self.train(rows, [0, 1], pesos=[weight] * 4,
+                                          min_samples_split=minimum, podar=prune)
+                        self.assertLessEqual(self.depth(tree), expected_depth)
+                        if not prune:
+                            self.assertEqual(self.depth(tree), expected_depth)
+                            if minimum in (3, 4):
+                                self.assertEqual(tree.children["left"].prediction, "no")
+                                self.assertEqual(self.probabilities(tree, ["left", "b"]),
+                                                 {"no": .5, "yes": .5})
+
+    def test_limits_apply_to_reused_continuous_attributes_and_combine(self):
+        rows = [[1, "no"], [2, "no"], [4, "yes"], [5, "yes"], [7, "no"], [8, "no"]]
+        for maximum, minimum, expected in ((None, 4, 2), (None, 5, 1),
+                                           (None, 7, 0), (1, 4, 1), (0, 2, 0)):
+            with self.subTest(maximum=maximum, minimum=minimum):
+                tree = self.train(rows, [0], continuos=[0], max_depth=maximum,
+                                  min_samples_split=minimum, podar=False)
+                self.assertEqual(self.depth(tree), expected)
+                if expected:
+                    self.assertEqual((tree.attribute, tree.threshold), (0, 2))
+                if expected == 1:
+                    self.assertEqual(tree.children[False].prediction, "yes")
+        # El mínimo de peso por lado continuo sigue siendo independiente.
+        self.assertIsNone(self.train(rows, [0], continuos=[0],
+                                     min_samples_split=2, min_peso_rama=3.01,
+                                     podar=False).attribute)
+
+    def test_min_gain_uses_original_weight_and_allows_equality(self):
+        rows = [["large", "a", "no"], ["large", "b", "no"],
+                ["small", "a", "yes"], ["small", "b", "no"]]
+        for scale in (.5, 1, 10):
+            for minimum, split in ((.15, False), (.1, True)):
+                with self.subTest(scale=scale, minimum=minimum):
+                    tree = self.train(rows, [0, 1], pesos=[w * scale for w in (45, 45, 5, 5)],
+                                      min_gain=minimum, podar=False)
+                    self.assertEqual(tree.attribute, 0)
+                    child = tree.children["small"]
+                    self.assertEqual(child.attribute, 1 if split else None)
+                    self.assertEqual(child.prediction, "yes")
+                    self.assertAlmostEqual(child.total_weight, 10 * scale)
+                    # En un empate, la predicción pública conserva el orden de clases de la raíz.
+                    self.assertEqual(self.ns["predecir_enriquecido"](tree, ["small", "a"]),
+                                     "yes" if split else "no")
+
+    def test_original_weight_survives_three_levels_and_reinitializes_per_training(self):
+        rows, weights = self.weighted_three_level_rows()
+        for minimum, split in ((.055, False), (.05, True)):
+            with self.subTest(minimum=minimum):
+                tree = self.train(rows, [0, 1, 2], pesos=weights,
+                                  min_gain=minimum, podar=False)
+                self.assertEqual(tree.attribute, 0)
+                self.assertEqual(tree.children[1].attribute, 1)
+                grandchild = tree.children[1].children[1]
+                self.assertEqual(grandchild.total_weight, 5)
+                self.assertEqual(grandchild.attribute, 2 if split else None)
+        independent = self.train(rows[-2:], [2], pesos=weights[-2:], min_gain=.055, podar=False)
+        self.assertEqual((independent.total_weight, independent.attribute), (5, 2))
+
+    def test_global_gain_preserves_missing_adjustment_and_fractional_node_weight(self):
+        rows = [["large", "a", "no"], ["large", "b", "no"],
+                ["small", "a", "yes"], ["small", "b", "no"],
+                ["small", None, "yes"], [None, "?", "yes"]]
+        weights = [45, 45, 4, 4, 2, 2]
+        # El hijo pesa 10.2, pero sólo 8 son conocidos: ganancia global = 8/102.
+        for minimum, split in ((.08, False), (.07, True)):
+            with self.subTest(minimum=minimum):
+                tree = self.train(rows, [0, 1], pesos=weights, min_gain=minimum, podar=False)
+                self.assertEqual((tree.attribute, tree.total_weight), (0, 102))
+                child = tree.children["small"]
+                self.assertAlmostEqual(child.total_weight, 10.2)
+                self.assertEqual(child.attribute, 1 if split else None)
+                self.assertAlmostEqual(child.class_counts["yes"], 6.2)
+                self.assertEqual(child.class_counts["no"], 4)
+                if split:
+                    self.assertEqual(child.branch_probabilities, {"a": .5, "b": .5})
+                    for leaf in child.children.values():
+                        self.assertAlmostEqual(leaf.total_weight, 5.1)
+
+    def test_existing_positional_arguments_and_appended_defaults_remain_compatible(self):
+        signature = str(inspect.signature(self.ns["entrenar_arbol_enriquecido"]))
+        self.assertEqual(signature, "(filas, atributos, continuos=(), pesos=None, min_gain=1e-12, "
+                         "min_peso_rama=2.0, confianza=0.25, podar=True, "
+                         "max_depth=None, min_samples_split=2)")
+        rows = [[1, "no"], [1, "no"], [2, "yes"], [2, "yes"]]
+        positional = self.train(rows, [0], [0], [1] * 4, 1, 2.0, .25, False)
+        keyword = self.train(rows, [0], continuos=[0], pesos=[1] * 4,
+                             min_gain=1, min_peso_rama=2.0, confianza=.25, podar=False)
+        self.assertEqual((positional.threshold, keyword.threshold), (1, 1))
+        self.assertEqual(self.probabilities(positional, [None]), self.probabilities(keyword, [None]))
 
     def test_numeric_reuse_whole_training_reference_and_no_mutation(self):
         rows = [[1, "no"], [2, "no"], [4, "yes"], [5, "yes"],
@@ -535,6 +664,11 @@ class EnrichedTrainingTests(unittest.TestCase):
     def test_public_api_matches_pre_refactor_behavioral_snapshot(self):
         snapshot = public_api_snapshot()
         self.assertEqual(len(snapshot["cases"]), 46)
+        # Los casos anteriores no cambian; la firma sólo agrega dos opciones al final.
+        suffix = ", max_depth=None, min_samples_split=2)"
+        signature = snapshot["signatures"]["entrenar_arbol_enriquecido"]
+        self.assertTrue(signature.endswith(suffix))
+        snapshot["signatures"]["entrenar_arbol_enriquecido"] = signature[:-len(suffix)] + ")"
         digest = hashlib.sha256(json.dumps(snapshot, ensure_ascii=False).encode()).hexdigest()
         self.assertEqual(digest, "2bacb63d62d834d2ac49408c3e39b975e89d1e042ea141b9b74d478c9b72d481")
 
