@@ -6,9 +6,18 @@ Run with: python -m unittest -v test_decision_tree.py
 import ast
 import contextlib
 import io
+import importlib.util
 import json
 from pathlib import Path
 import unittest
+from unittest.mock import MagicMock, patch
+
+
+HAS_MATPLOTLIB = importlib.util.find_spec('matplotlib') is not None
+if HAS_MATPLOTLIB:
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
 
 
 NOTEBOOK = Path(__file__).with_name("decision-tree.ipynb")
@@ -56,6 +65,11 @@ class DecisionTreeNotebookTests(unittest.TestCase):
     use_gain_ratio = False
 
     def setUp(self):
+        if HAS_MATPLOTLIB:
+            show = patch.object(plt, 'show')
+            self.show = show.start()
+            self.addCleanup(show.stop)
+            self.addCleanup(plt.close, 'all')
         self.original_source = NOTEBOOK.read_text(encoding="utf-8")
         self.assertTrue(self.original_source.strip(), "The notebook must contain valid notebook JSON.")
         self.notebook = json.loads(self.original_source)
@@ -102,7 +116,7 @@ class DecisionTreeNotebookTests(unittest.TestCase):
                 for node in ast.walk(ast.parse("".join(cell["source"])))
                 if isinstance(node, (ast.Import, ast.ImportFrom))
             ]
-            if index in (1, 3):
+            if index == 1:
                 self.assertEqual(imports, [])
             for node in imports:
                 modules = (
@@ -110,7 +124,8 @@ class DecisionTreeNotebookTests(unittest.TestCase):
                     if isinstance(node, ast.ImportFrom)
                     else [alias.name for alias in node.names]
                 )
-                self.assertTrue(set(modules) <= {"collections", "math"})
+                allowed = {"matplotlib.pyplot"} if index == 3 else {"collections", "math"}
+                self.assertTrue(set(modules) <= allowed)
 
     def test_labeled_training_matrix_has_class_last(self):
         matrix = self.namespace["training_matrix"]
@@ -126,6 +141,10 @@ class DecisionTreeNotebookTests(unittest.TestCase):
         self.assertIsNone(node.attribute)
         self.assertIsNone(node.threshold)
         self.assertEqual(node.children, {})
+        self.assertIsNone(node.sample_count)
+        self.assertIsNone(node.predicted_class_count)
+        branch = self.namespace['Node']('yes', 0, 1.5)
+        self.assertEqual((branch.attribute, branch.threshold), (0, 1.5))
 
     def test_entropy_and_weighted_conditional_entropy(self):
         entropy = self.namespace["impurityEval_1"]
@@ -462,6 +481,124 @@ class DecisionTreeNotebookTests(unittest.TestCase):
         self.assertIsNone(child.attribute)
         self.assertEqual(child.prediction, "yes")
         self.assertEqual(child.children, {})
+
+    def test_leaf_counts_cover_pure_and_majority_stopping_rules(self):
+        examples = [
+            ([["a", "yes"], ["b", "yes"]], [0], {}, "yes", 2, 2),
+            ([["a", "no"], ["b", "yes"], ["c", "yes"]], [], {}, "yes", 3, 2),
+            ([["a", "no"], ["a", "yes"], ["a", "yes"]], [0], {}, "yes", 3, 2),
+            ([["a", "no"], ["b", "yes"]], [0], {"min_gain": 2}, "no", 2, 1),
+        ]
+        for rows, attributes, options, prediction, total, matching in examples:
+            with self.subTest(rows=rows, options=options):
+                leaf = self.train(rows, attributes, **options)
+                self.assertIsNone(leaf.attribute)
+                self.assertEqual((leaf.prediction, leaf.sample_count,
+                                  leaf.predicted_class_count), (prediction, total, matching))
+
+    def test_recursive_leaf_counts_use_only_reaching_training_rows(self):
+        rows = [['a', 'yes'], ['a', 'yes'], ['a', 'no'], ['b', 'no'], ['b', 'no']]
+        tree = self.train(rows, [0])
+        self.assertEqual(tree.attribute, 0)
+        self.assertEqual((tree.children['a'].sample_count,
+                          tree.children['a'].predicted_class_count), (3, 2))
+        self.assertEqual((tree.children['b'].sample_count,
+                          tree.children['b'].predicted_class_count), (2, 2))
+        predict = self.namespace['predict_one']
+        self.assertEqual([predict(tree, [value]) for value in ('a', 'b', 'unseen')],
+                         ['yes', 'no', 'no'])
+        self.assertEqual(sum(child.sample_count for child in tree.children.values()), len(rows))
+        constant = self.train([['a', 'no'], ['a', 'yes'], ['a', 'yes']], [0], min_gain=0)
+        self.assertEqual((constant.children['a'].sample_count,
+                          constant.children['a'].predicted_class_count), (3, 2))
+
+    def test_plot_labels_include_leaf_counts_without_rendering(self):
+        rows = [['a', 'yes'], ['a', 'yes'], ['a', 'no'], ['b', 'no']]
+        tree = self.train(rows, [0])
+        pyplot = MagicMock()
+        fig, ax = MagicMock(), MagicMock()
+        pyplot.subplots.return_value = fig, ax
+        with patch.dict('sys.modules', {'matplotlib': MagicMock(pyplot=pyplot),
+                                       'matplotlib.pyplot': pyplot}):
+            self.namespace['plot_tree'](tree, ['Feature'])
+            labels = [call.args[2] for call in ax.text.call_args_list]
+            self.assertEqual(labels, [
+                'a', 'b',
+                'Class: yes\n2/3',
+                'Class: no\n1/1',
+                'Feature',
+            ])
+            ax.text.reset_mock()
+            self.namespace['plot_tree'](self.namespace['Node']('manual'), [])
+            self.assertEqual(ax.text.call_args.args[2],
+                             'Class: manual\nunknown/unknown')
+        self.assertEqual((tree.children['a'].sample_count,
+                          tree.children['a'].predicted_class_count), (3, 2))
+
+    def test_tree_layout_matches_trained_structure_without_mutation(self):
+        tree = self.namespace['tree']
+        nodes, edges = self.namespace['tree_layout'](tree)
+        self.assertEqual(len(nodes), 8)
+        self.assertEqual(len(edges), 7)
+        positions = {node: position for node, position in nodes}
+        self.assertEqual(len(set(positions.values())), 8)
+        for node, start in nodes:
+            for branch, child in node.children.items():
+                self.assertIn((start, positions[child], str(branch)), edges)
+                self.assertEqual(positions[child][1], start[1] - 1)
+        self.assertEqual([self.namespace['predict_one'](tree, row[:-1])
+                          for row in self.namespace['D']],
+                         [row[-1] for row in self.namespace['D']])
+
+    def test_tree_layout_single_leaf_and_repeated_multiway_labels(self):
+        Node = self.namespace['Node']
+        layout = self.namespace['tree_layout']
+        leaf = Node('same')
+        self.assertEqual(layout(leaf), ([(leaf, (0, 0))], []))
+        for count in (1, 3, 12):
+            with self.subTest(branch_count=count):
+                root = Node('same', attribute=0)
+                for branch in range(count):
+                    child = Node('same', attribute=0)
+                    child.children['repeated'] = Node('same')
+                    root.children[branch] = child
+                nodes, edges = layout(root)
+                self.assertEqual(len(nodes), 1 + 2 * count)
+                self.assertEqual(len(edges), 2 * count)
+                self.assertEqual(len({position for _, position in nodes}), len(nodes))
+                self.assertEqual(sum(label == 'repeated' for _, _, label in edges), count)
+                self.assertEqual(nodes[-1][1], ((count - 1) / 2, 0))
+
+    @unittest.skipUnless(HAS_MATPLOTLIB, 'matplotlib is not installed; no installation allowed')
+    def test_plot_artists_and_same_cell_display(self):
+        self.show.assert_called_once_with()
+        for tree in (self.namespace['tree'], self.namespace['Node']('single')):
+            with self.subTest(tree=tree):
+                nodes, edges = self.namespace['tree_layout'](tree)
+                fig, ax = self.namespace['plot_tree'](tree, self.namespace['columns'])
+                fig.canvas.draw()
+                self.assertEqual(len(ax.lines), len(edges))
+                self.assertEqual(len(ax.texts), len(nodes) + len(edges))
+                self.assertEqual([text.get_text() for text in ax.texts[:len(edges)]],
+                                 [label for _, _, label in edges])
+                self.assertEqual([text.get_text() for text in ax.texts[len(edges):]],
+                                 [(f'Class: {node.prediction}'
+                                   f'\n{node.predicted_class_count if node.predicted_class_count is not None else "unknown"}'
+                                   f'/{node.sample_count if node.sample_count is not None else "unknown"}')
+                                  if node.attribute is None
+                                  else self.namespace['columns'][node.attribute]
+                                  for node, _ in nodes])
+                self.assertFalse(ax.axison)
+                plt.close(fig)
+
+    def test_plot_missing_dependency_reports_limitation(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            with patch('builtins.__import__', side_effect=ModuleNotFoundError(
+                    "No module named 'matplotlib'", name='matplotlib')):
+                result = self.namespace['plot_tree'](self.namespace['tree'], [])
+        self.assertIsNone(result)
+        self.assertIn('matplotlib is not installed', output.getvalue())
 
     def test_final_cell_reports_held_out_accuracy_and_predictions(self):
         matrix = self.namespace["test_matrix"]
