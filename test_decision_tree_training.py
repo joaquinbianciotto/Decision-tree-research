@@ -34,9 +34,10 @@ class TrainingReviewNotebookTests(unittest.TestCase):
         baseline = [cell for cell in original["cells"] if cell["cell_type"] == "code"][:4]
         training = next(cell for cell in self.cells if cell["id"] == "c45-algorithm")
         self.assertEqual(training["source"], baseline[-1]["source"])
-        self.assertEqual(self.cells[-3], training)
-        self.assertEqual(self.cells[-2]["id"], "integration-support")
-        self.assertEqual(self.cells[-1]["id"], "enriched-training")
+        ids = [cell["id"] for cell in self.cells]
+        self.assertLess(ids.index("c45-algorithm"), ids.index("integration-support"))
+        self.assertLess(ids.index("integration-support"), ids.index("enriched-training"))
+        self.assertLess(ids.index("enriched-training"), ids.index("interactive-panel"))
         for copied, source in zip((self.cells[i] for i in (0, 1, 2, 4)), baseline):
             self.assertEqual(copied["source"], source["source"])
         helper = next(c for c in self.cells if c["id"] == "proposed-extensions")
@@ -107,6 +108,7 @@ class TrainingReviewNotebookTests(unittest.TestCase):
             "## 5. Entrenamiento original — sin cambios",
             "## 6. Entrenamiento enriquecido — integración aprobada",
             "### 6.2 Crecimiento comparable con el algoritmo base",
+            "## 7. Panel interactivo del árbol enriquecido",
         ])
 
     def test_every_helper_documents_pdf_and_both_page_numbers(self):
@@ -637,7 +639,8 @@ class EnrichedTrainingTests(unittest.TestCase):
 
     def test_enriched_execution_preserves_in_memory_baseline_and_helpers(self):
         notebook = json.loads((ROOT / "decision-tree-training.ipynb").read_text())
-        cells = [c for c in notebook["cells"] if c["cell_type"] == "code"]
+        cells = [c for c in notebook["cells"]
+                 if c["cell_type"] == "code" and c["id"] != "interactive-panel"]
         before_source = deepcopy(cells[:-1])
         namespace, stdout, stderr = execute(cells[:-1])
         old_bindings = dict(namespace)
