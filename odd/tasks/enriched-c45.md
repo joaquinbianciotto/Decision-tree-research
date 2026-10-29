@@ -249,10 +249,10 @@ Al finalizar, proporcionar un resumen de los archivos modificados, nuevas APIs, 
 
 ## Tasks
 
-- T1 | S1-S3,S6 | delegated: selection worker; parallel independent behavior, isolated worktree | pending (worker running; integration next) | commit: pending; gain/leaf/MDL tests and Spanish notebook docs.
-- T2 | S4,S6 | delegated: pruning worker; parallel independent behavior, isolated worktree | pending (worker running; integration next) | commit: pending; pruning tests and Spanish notebook docs.
-- T3 | S6-S7 | inline: parent; baseline test drift and executable notebook isolation | in_progress | commit: pending; preserve original notebook byte-for-byte.
-- T4 | S5-S6 | inline: parent; widget integration depends on T1/T2 | pending | commit: pending; four control groups and structural results.
+- T1 | S1-S3,S6 | delegated: selection worker; parallel independent behavior, isolated worktree | pending (worker finalizing zero-gain regression) | commit: pending; gain/leaf/MDL tests and Spanish notebook docs.
+- T2 | S4,S6 | delegated: pruning worker; parallel independent behavior, isolated worktree | in_progress (worker completed; parent integration/checks) | commit: pending; pruning tests and Spanish notebook docs.
+- T3 | S6-S7 | inline: parent; baseline test drift and executable notebook isolation | done | commit: 2edd3e3; 108 tests GREEN, original notebook byte-for-byte unchanged.
+- T4 | S5-S6 | inline: parent; widget integration depends on T1/T2 | pending (UI written; awaits T1/T2 integration and GREEN) | commit: pending; four control groups and structural results.
 - T5 | S1-S7 | inline: parent functional/seam checks; independent verify only for named high risk | pending | commit: pending; complete suite and sequential notebook.
 
 ## Log
@@ -501,3 +501,7 @@ Clean main at b20785e. Training notebook has no original algorithm/training cell
 ### L3 — User delivery choice (verbatim)
 
 Cadena sobre una rama de feature (recomendado)
+
+### L4 — T3 verification
+
+Committed 2edd3e3: existing suite 108/108 GREEN using `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$(/usr/bin/python3 -m site --user-site)" .venv/bin/python -m unittest discover -v`. Restored original 46-case behavioral SHA without changing its expected value. Original models remain separate and unchanged. No dependency installation; system user-site supplies existing sklearn. Native committed-range assessment unavailable (generated untracked pycache); no review started, no named high-risk item in this test/docs unit. Own generated untracked caches removed and future runs disable bytecode. Rollback boundary: explicit original-model test fixture and normalized notebook outputs/introduction; no algorithm change.
