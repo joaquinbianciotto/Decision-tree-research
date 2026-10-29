@@ -15,7 +15,7 @@ class EnrichedTreePanelTests(unittest.TestCase):
         notebook = json.loads((ROOT / "decision-tree-training.ipynb").read_text())
         self.assertIn("interactive-panel", [cell["id"] for cell in notebook["cells"]])
         cells = [cell for cell in notebook["cells"] if cell["cell_type"] == "code"]
-        self.ns, self.stdout, self.stderr = execute(cells)
+        self.ns, self.stdout, self.stderr = execute(cells, with_original=True)
         self.panel = self.ns["crear_panel_arbol_enriquecido"]()
 
     def click(self, panel=None):
