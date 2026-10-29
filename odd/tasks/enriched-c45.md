@@ -252,8 +252,8 @@ Al finalizar, proporcionar un resumen de los archivos modificados, nuevas APIs, 
 - T1 | S1-S3,S6 | delegated: selection worker; parallel independent behavior, isolated worktree | done | commit: fe33b86; 17 dedicated + combined74 + full143 GREEN; unchanged46-case SHA; native medium, reviewDue=false.
 - T2 | S4,S6 | delegated: pruning worker; parallel independent behavior, isolated worktree | done | commit: 515008d; 14 dedicated plus 35 existing tests GREEN; native medium, reviewDue=false.
 - T3 | S6-S7 | inline: parent; baseline test drift and executable notebook isolation | done | commit: 2edd3e3; 108 tests GREEN, original notebook byte-for-byte unchanged.
-- T4 | S5-S6 | inline: parent; widget integration depends on T1/T2 | in_progress (8 panel tests and actual kernel GREEN; committing final slice) | commit: pending; four control groups and structural results.
-- T5 | S1-S7 | inline: parent functional/seam checks; independent verify only for named high risk | pending (functional proof complete; final delivery readback next) | commit: pending; complete suite143 and actual sequential Jupyter7cells + live widget GREEN.
+- T4 | S5-S6 | inline: parent; widget integration depends on T1/T2 | done | commit: 9fadf1e; 8 widget tests and actual Jupyter kernel GREEN; native medium, reviewDue=false.
+- T5 | S1-S7 | inline: parent functional/seam checks; independent verify only for named high risk | done | implementation snapshot: 9fadf1e; suite143, actual Jupyter7cells + live widget, cell-order/output/original-model structural readback all GREEN.
 
 ## Log
 
@@ -525,3 +525,12 @@ Integration worker mvty5pgv-4-9lzt completed: combined feature tests74/74 GREEN,
 Parent full discovery: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$(/usr/bin/python3 -m site --user-site)" .venv/bin/python -m unittest discover -v` =143/143 GREEN. `git diff --exit-code b20785e -- decision-tree.ipynb random-forest.ipynb requirements.txt` =0 (no original-model/dependency edits). `git diff --check` clean. Actual Jupyter KernelManager job2 ran all7 code cells sequentially and clicked the live train button; all passed, with expected structural summary and no original model imported. Non-failing environment warning: local kernel TCP transport is unencrypted; no code execution errors. No browser screenshot or hosted Colab run performed; real widgets+local kernel prove execution, Colab instructions documented.
 
 T1 rollback: selection helpers/growth/trainer kwargs plus test_enriched_selection.py and associated docs. Slice3 (UI) starts atfe33b86; parent now commits already-tested panel code, tests and docs. No publishing.
+
+
+### L8 — Feature closed
+
+T4 committed9fadf1e67b2e78791500b20604b484fa3d6d9f88; slice3 fe33b86→9fadf1e,321 authored changed lines. Native assessment medium with reviewDue=false/under_budget; no native review started. T5 final structural readback passed: notebook IDs/order unchanged, outputs empty, original notebooks and requirements unchanged. All5 tasks done against implementation snapshot9fadf1e; this closure is documentation only. Branchfeat/enriched-c45, local commits only. No push, PR, merge or dependency install.
+
+Final outcome:143 unittest tests pass;7 notebook cells and actual train-button callback pass in a real local Jupyter kernel. Old46-case behavior digest unchanged. Defaults gain/noMDL/zero leaf minima/pessimistic with raising retained;10 positional parameters intact and additions keyword-only. Initial stale-baseline failures resolved. Remaining deviations are documented: MDL counts label-independent feasible boundaries with total-weight denominator, no extra Weka cardinality heuristic; alternative pruning is one-pass whole-tree greedy, fixed-alpha rather than full CART weakest-link path; pessimistic estimation remains the prior approximation. Hosted Google Colab and visual browser screenshots were not run (not needed for local kernel/widget execution proof). Native outside review not run because final candidates are medium and reviewDue=false; initial T3 assessment was unavailable due generated caches, not a missing functional check.
+
+Risk:none — changed shared evaluation helpers are used only by the explicitly requested enriched pipeline; original decision_tree/Node/predict_one/training, entropy and source notebooks unchanged. No unnamed original-command behavior changed, so original-algorithm differential N/A. UI rollback boundary: interactive-panel sources and tests only; no original models affected. No pending functional checks or blockers.
