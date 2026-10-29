@@ -249,11 +249,11 @@ Al finalizar, proporcionar un resumen de los archivos modificados, nuevas APIs, 
 
 ## Tasks
 
-- T1 | S1-S3,S6 | delegated: selection worker; parallel independent behavior, isolated worktree | in_progress (selection finished; context-backstop integration worker mvty5pgv-4-9lzt) | commit: pending; 17 dedicated GREEN; legacy compatibility/UI seams pending.
+- T1 | S1-S3,S6 | delegated: selection worker; parallel independent behavior, isolated worktree | done | commit: fe33b86; 17 dedicated + combined74 + full143 GREEN; unchanged46-case SHA; native medium, reviewDue=false.
 - T2 | S4,S6 | delegated: pruning worker; parallel independent behavior, isolated worktree | done | commit: 515008d; 14 dedicated plus 35 existing tests GREEN; native medium, reviewDue=false.
 - T3 | S6-S7 | inline: parent; baseline test drift and executable notebook isolation | done | commit: 2edd3e3; 108 tests GREEN, original notebook byte-for-byte unchanged.
-- T4 | S5-S6 | inline: parent; widget integration depends on T1/T2 | pending (UI written; awaits T1/T2 integration and GREEN) | commit: pending; four control groups and structural results.
-- T5 | S1-S7 | inline: parent functional/seam checks; independent verify only for named high risk | pending | commit: pending; complete suite and sequential notebook.
+- T4 | S5-S6 | inline: parent; widget integration depends on T1/T2 | in_progress (8 panel tests and actual kernel GREEN; committing final slice) | commit: pending; four control groups and structural results.
+- T5 | S1-S7 | inline: parent functional/seam checks; independent verify only for named high risk | pending (functional proof complete; final delivery readback next) | commit: pending; complete suite143 and actual sequential Jupyter7cells + live widget GREEN.
 
 ## Log
 
@@ -516,3 +516,12 @@ Feature-branch-chain delivery remains local only. Slice 0 (test-fixture/bootstra
 ### L6 — Integration routing
 
 Selection worker returned partial solely for stale-baseline test expectations, with17 dedicated GREEN and10 focused existing GREEN. Runtime context backstop fired; bounded worker mvty5pgv-4-9lzt integrates T1 by function boundaries into parent, preserves pruning/UI, reconciles intentional helper-name expectations, and runs combined feature tests. Parent will run full discovery and real Jupyter kernel once integration returns.
+
+
+### L7 — Selection integration and final functional proof
+
+Integration worker mvty5pgv-4-9lzt completed: combined feature tests74/74 GREEN, including8 real-widget tests and unchanged46-case SHA; no pruning/panel implementation changes. Its generic TDD-not-active text is not lifecycle evidence: original selection/pruning writers and parent UI observed RED then GREEN; integration reused that implementation without new behavior. T1 committed as fe33b86da7ead83785cac862a237ae40d4434da3; slice2 starts515008d→fe33b86,440 authored changed lines (gain/MDL/leaf feasibility are one coherent selection pipeline with tests/docs). Native committed assessment medium, reviewDue=false/under_budget; no reviewer/independent verifier required. Risk:none; original models and info/log2 unchanged.
+
+Parent full discovery: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$(/usr/bin/python3 -m site --user-site)" .venv/bin/python -m unittest discover -v` =143/143 GREEN. `git diff --exit-code b20785e -- decision-tree.ipynb random-forest.ipynb requirements.txt` =0 (no original-model/dependency edits). `git diff --check` clean. Actual Jupyter KernelManager job2 ran all7 code cells sequentially and clicked the live train button; all passed, with expected structural summary and no original model imported. Non-failing environment warning: local kernel TCP transport is unencrypted; no code execution errors. No browser screenshot or hosted Colab run performed; real widgets+local kernel prove execution, Colab instructions documented.
+
+T1 rollback: selection helpers/growth/trainer kwargs plus test_enriched_selection.py and associated docs. Slice3 (UI) starts atfe33b86; parent now commits already-tested panel code, tests and docs. No publishing.

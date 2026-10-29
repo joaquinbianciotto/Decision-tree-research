@@ -101,7 +101,9 @@ class EnrichedTreePanelTests(unittest.TestCase):
         spy.assert_called_once_with(
             rows, [0], continuos=(0,), pesos=weights, min_gain=0.1,
             min_peso_rama=1.5, confianza=0.4, podar=False,
-            max_depth=1, min_samples_split=3)
+            max_depth=1, min_samples_split=3, criterio="gain", filtro_ganancia_promedio=True,
+            min_gain_ratio=None, correccion_mdl=False, min_samples_leaf=0, min_weight_leaf=0.0,
+            metodo_poda="ninguna", subtree_raising=True, ccp_alpha=0.0)
         expected = trainer(rows, [0], continuos=[0], pesos=weights, min_gain=0.1,
                            min_peso_rama=1.5, confianza=0.4, podar=False,
                            max_depth=1, min_samples_split=3)
@@ -114,6 +116,96 @@ class EnrichedTreePanelTests(unittest.TestCase):
         self.assertIsNone(panel.arbol.attribute)
         controls["continuos"].value = ()
         self.assertTrue(controls["min_peso_rama"].disabled)
+
+    def test_new_controls_are_grouped_and_follow_the_selected_method(self):
+        import ipywidgets as widgets
+
+        self.assertEqual(tuple(self.panel.grupos), ("División", "Crecimiento", "Poda", "Resultados"))
+        self.assertTrue(all(isinstance(group, widgets.VBox) for group in self.panel.grupos.values()))
+        c = self.panel.controles
+        for name, value in {"criterio": "gain", "filtro_ganancia_promedio": True,
+                            "correccion_mdl": False, "min_samples_leaf": 0,
+                            "min_weight_leaf": 0.0, "metodo_poda": "pesimista",
+                            "subtree_raising": True, "ccp_alpha": 0.0}.items():
+            self.assertEqual(c[name].value, value)
+        self.assertTrue(c["filtro_ganancia_promedio"].disabled)
+        c["criterio"].value = "gain_ratio"
+        self.assertFalse(c["filtro_ganancia_promedio"].disabled)
+        c["usar_min_gain_ratio"].value = True
+        self.assertFalse(c["min_gain_ratio"].disabled)
+        for method in ("cost_complexity", "reduced_error", "ninguna", "pesimista"):
+            c["metodo_poda"].value = method
+            self.assertEqual(c["ccp_alpha"].disabled, method != "cost_complexity")
+            self.assertEqual(c["confianza"].disabled, method != "pesimista")
+            self.assertEqual(c["subtree_raising"].disabled, method != "pesimista")
+            self.assertEqual(c["filas_validacion"].disabled, method != "reduced_error")
+            self.assertEqual(c["pesos_validacion"].disabled, method != "reduced_error")
+        c["podar"].value = False
+        self.assertTrue(c["metodo_poda"].disabled)
+        self.assertTrue(c["confianza"].disabled)
+
+    def test_standalone_panel_prints_structure_without_loading_original_algorithm(self):
+        notebook = json.loads((ROOT / "decision-tree-training.ipynb").read_text())
+        ns, stdout, stderr = execute([c for c in notebook["cells"] if c["cell_type"] == "code"])
+        panel = ns["crear_panel_arbol_enriquecido"]()
+        output = self.click(panel)
+        self.assertNotIn("decision_tree", ns)
+        self.assertNotIn("print_tree", ns)
+        self.assertNotIn("tree", ns)
+        self.assertEqual((stdout, stderr), ("", ""))
+        self.assertIsNotNone(panel.arbol)
+        self.assertIn("Antes de podar:", output)
+        self.assertIn("Después de podar:", output)
+        self.assertIn("Parámetros utilizados:", output)
+        self.assertIn("Profundidad", output)
+        self.assertIn("Nodos", output)
+        self.assertIn("Hojas", output)
+        self.assertEqual(panel.resultados["despues"], ns["estadisticas_arbol_enriquecido"](panel.arbol))
+        self.assertEqual(panel.parametros_utilizados["criterio"], "gain")
+
+    def test_validation_is_explicit_editable_and_never_reuses_training_data(self):
+        rows = [["a", "no"], ["b", "yes"], ["b", "yes"]]
+        validation = [["a", "yes"], [None, "yes"]]
+        weights = [.25, 2.0]
+        before = deepcopy((rows, validation, weights))
+        panel = self.ns["crear_panel_arbol_enriquecido"](
+            rows, [0], ["X", "Clase"], filas_validacion=validation, pesos_validacion=weights)
+        panel.controles["metodo_poda"].value = "reduced_error"
+        output = self.click(panel)
+        self.assertNotIn("No se pudo entrenar:", output)
+        self.assertEqual(panel.parametros_utilizados["filas_validacion"], validation)
+        self.assertEqual(panel.parametros_utilizados["pesos_validacion"], weights)
+        self.assertEqual((rows, validation, weights), before)
+        last = panel.arbol
+        panel.controles["filas_validacion"].value = ""
+        output = self.click(panel)
+        self.assertIn("No se pudo entrenar:", output)
+        self.assertIn("validacion", output)
+        self.assertIs(panel.arbol, last)
+        panel.controles["filas_validacion"].value = "not JSON"
+        self.assertIn("No se pudo entrenar:", self.click(panel))
+        self.assertIs(panel.arbol, last)
+
+    def test_new_options_and_continuous_mdl_reach_the_trainer(self):
+        rows = [[1, "no"], [2, "no"], [4, "yes"], [5, "yes"]]
+        panel = self.ns["crear_panel_arbol_enriquecido"](rows, [0], ["X", "Clase"])
+        values = {"criterio": "gain_ratio", "filtro_ganancia_promedio": False,
+                  "usar_min_gain_ratio": True, "min_gain_ratio": .1,
+                  "correccion_mdl": True, "continuos": (0,),
+                  "min_samples_leaf": 2, "min_weight_leaf": 1.5,
+                  "metodo_poda": "cost_complexity", "ccp_alpha": .3}
+        for name, value in values.items():
+            panel.controles[name].value = value
+        spy = Mock(wraps=self.ns["entrenar_arbol_enriquecido"])
+        self.ns["entrenar_arbol_enriquecido"] = spy
+        self.assertNotIn("No se pudo entrenar:", self.click(panel))
+        spy.assert_called_once()
+        kwargs = spy.call_args.kwargs
+        for name, value in values.items():
+            if name != "usar_min_gain_ratio":
+                self.assertEqual(kwargs[name], value)
+        self.assertNotIn("filas_validacion", kwargs)
+        self.assertLessEqual(panel.resultados["despues"]["hojas"], panel.resultados["antes"]["hojas"])
 
     def test_invalid_controls_do_not_train_or_replace_the_last_result(self):
         rows = [[1, "no"], [2, "no"], [4, "yes"], [5, "yes"]]
@@ -129,7 +221,9 @@ class EnrichedTreePanelTests(unittest.TestCase):
         for name, value in (("min_gain", -1), ("min_gain", float("nan")),
                             ("min_gain", float("inf")), ("min_peso_rama", 0),
                             ("confianza", 0), ("confianza", 1),
-                            ("max_depth", -1), ("min_samples_split", 1)):
+                            ("max_depth", -1), ("min_samples_split", 1),
+                            ("min_samples_leaf", -1), ("min_weight_leaf", -1),
+                            ("min_weight_leaf", float("nan")), ("ccp_alpha", -1)):
             with self.subTest(parameter=name, value=value):
                 original = controls[name].value
                 controls[name].value = value
