@@ -100,7 +100,7 @@ class TrainingReviewNotebookTests(unittest.TestCase):
             "info", "separar_casos_conocidos", "evaluar_prueba",
             "particionar_con_desconocidos", "evaluar_umbrales_continuos",
             "combinar_probabilidades_clase", "errores_estimados", "U_CF",
-            "estadisticas_hoja", "elegir_poda",
+            "estadisticas_hoja", "elegir_poda", "_validar_minimos_hoja", "_cumple_minimos_hoja",
         })
 
     def test_markdown_is_spanish(self):

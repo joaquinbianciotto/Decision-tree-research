@@ -249,8 +249,8 @@ Al finalizar, proporcionar un resumen de los archivos modificados, nuevas APIs, 
 
 ## Tasks
 
-- T1 | S1-S3,S6 | delegated: selection worker; parallel independent behavior, isolated worktree | pending (worker finalizing zero-gain regression) | commit: pending; gain/leaf/MDL tests and Spanish notebook docs.
-- T2 | S4,S6 | delegated: pruning worker; parallel independent behavior, isolated worktree | in_progress (worker completed; parent integration/checks) | commit: pending; pruning tests and Spanish notebook docs.
+- T1 | S1-S3,S6 | delegated: selection worker; parallel independent behavior, isolated worktree | in_progress (selection finished; context-backstop integration worker mvty5pgv-4-9lzt) | commit: pending; 17 dedicated GREEN; legacy compatibility/UI seams pending.
+- T2 | S4,S6 | delegated: pruning worker; parallel independent behavior, isolated worktree | done | commit: 515008d; 14 dedicated plus 35 existing tests GREEN; native medium, reviewDue=false.
 - T3 | S6-S7 | inline: parent; baseline test drift and executable notebook isolation | done | commit: 2edd3e3; 108 tests GREEN, original notebook byte-for-byte unchanged.
 - T4 | S5-S6 | inline: parent; widget integration depends on T1/T2 | pending (UI written; awaits T1/T2 integration and GREEN) | commit: pending; four control groups and structural results.
 - T5 | S1-S7 | inline: parent functional/seam checks; independent verify only for named high risk | pending | commit: pending; complete suite and sequential notebook.
@@ -505,3 +505,14 @@ Cadena sobre una rama de feature (recomendado)
 ### L4 — T3 verification
 
 Committed 2edd3e3: existing suite 108/108 GREEN using `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$(/usr/bin/python3 -m site --user-site)" .venv/bin/python -m unittest discover -v`. Restored original 46-case behavioral SHA without changing its expected value. Original models remain separate and unchanged. No dependency installation; system user-site supplies existing sklearn. Native committed-range assessment unavailable (generated untracked pycache); no review started, no named high-risk item in this test/docs unit. Own generated untracked caches removed and future runs disable bytecode. Rollback boundary: explicit original-model test fixture and normalized notebook outputs/introduction; no algorithm change.
+
+
+### L5 — Pruning delivery and slice boundaries
+
+T2 committed as 515008d5f2ee23e6e878c350155066443b137b93 after parent spot-check: `PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m unittest -v test_enriched_pruning test_decision_tree_training` = 49 GREEN. Native committed assessment from 2edd3e3: medium, 417 changed lines, reviewDue=false/under_budget, self-verification sufficient; no independent verifier or review started. Risk: none (only requested enriched paths; original algorithms and helpers unchanged). Rollback: new pruning dispatch/helpers/stats and test_enriched_pruning.py. Fixed-alpha whole-tree greedy objective explicitly documented, not full weakest-link CART.
+
+Feature-branch-chain delivery remains local only. Slice 0 (test-fixture/bootstrap): b20785e→2edd3e3, includes generated verbatim ODD specs/log; slice 1 (pruning): 2edd3e3→515008d, 417 authored changed lines including tests/docs. This is one coherent behavior, close to the advisory400 target. Next selection slice starts at515008d; UI follows separately. No push or PR authorized.
+
+### L6 — Integration routing
+
+Selection worker returned partial solely for stale-baseline test expectations, with17 dedicated GREEN and10 focused existing GREEN. Runtime context backstop fired; bounded worker mvty5pgv-4-9lzt integrates T1 by function boundaries into parent, preserves pruning/UI, reconciles intentional helper-name expectations, and runs combined feature tests. Parent will run full discovery and real Jupyter kernel once integration returns.
