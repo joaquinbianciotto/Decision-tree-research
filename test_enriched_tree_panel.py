@@ -5,7 +5,8 @@ from copy import deepcopy
 import io
 import json
 import unittest
-from unittest.mock import Mock
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from test_decision_tree_training import ROOT, execute
 
@@ -31,6 +32,64 @@ class EnrichedTreePanelTests(unittest.TestCase):
         return (node.prediction, node.attribute, node.threshold, node.class_probabilities,
                 {branch: self.state(child) for branch, child in node.children.items()})
 
+    def test_branch_labels_include_attribute_names_and_full_conditions(self):
+        for low, high in ((0, 1), ("calmo", "fuerte")):
+            with self.subTest(categories=(low, high)):
+                rows = ([[50, low, "no"]] * 2 + [[50, high, "no"]] * 2
+                        + [[70, low, "sí"]] * 2 + [[70, high, "no"]] * 2)
+                tree = self.ns["entrenar_arbol_enriquecido"](
+                    rows, [0, 1], continuos=[0], podar=False)
+                before = deepcopy(self.state(tree))
+                predictions = [self.ns["predecir_enriquecido"](tree, row[:-1]) for row in rows]
+                stdout, stderr = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                    result = self.ns["imprimir_arbol_enriquecido"](
+                        tree, ["temperatura", "viento", "Clase"])
+                self.assertIsNone(result)
+                self.assertEqual(stderr.getvalue(), "")
+                self.assertEqual(stdout.getvalue(), (
+                    "temperatura\n"
+                    "  [temperatura <= 50]\n"
+                    "    Class: no\n"
+                    "  [temperatura > 50]\n"
+                    "    viento\n"
+                    f"      [viento = {low!r}]\n"
+                    "        Class: sí\n"
+                    f"      [viento = {high!r}]\n"
+                    "        Class: no\n"))
+                self.assertEqual(self.state(tree), before)
+                self.assertEqual(tree.total_weight, len(rows))
+                self.assertEqual(
+                    [self.ns["predecir_enriquecido"](tree, row[:-1]) for row in rows], predictions)
+
+    def test_printing_leaf_retains_class_output_and_indentation(self):
+        tree = self.ns["entrenar_arbol_enriquecido"]([[50, "no"], [70, "no"]], [0])
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            result = self.ns["imprimir_arbol_enriquecido"](tree, ["temperatura", "Clase"], "  ")
+        self.assertIsNone(result)
+        self.assertEqual((stdout.getvalue(), stderr.getvalue()), ("  Class: no\n", ""))
+        self.assertEqual(tree.prediction, "no")
+
+    def test_kernel_panel_uses_only_cleveland_with_continuous_attributes_selected(self):
+        notebook = json.loads((ROOT / "decision-tree-training.ipynb").read_text())
+        cell = next(cell for cell in notebook["cells"] if cell["id"] == "interactive-panel")
+        namespace = dict(self.ns, get_ipython=lambda: SimpleNamespace(kernel=object()))
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with patch("IPython.display.display") as display, contextlib.redirect_stdout(stdout), \
+                contextlib.redirect_stderr(stderr):
+            exec(compile("".join(cell["source"]), cell["id"], "exec"), namespace)
+        panel = namespace["panel_enriquecido"]
+        self.assertEqual((stdout.getvalue(), stderr.getvalue()), ("", ""))
+        display.assert_called_once_with(panel)
+        self.assertEqual(panel.controles["continuos"].value, (0, 3, 4, 7, 9))
+        self.assertFalse(panel.controles["min_peso_rama"].disabled)
+        output = self.click(panel)
+        self.assertNotIn("No se pudo entrenar:", output)
+        self.assertEqual(panel.arbol.total_weight, len(namespace["filas_cleveland"]))
+        self.assertEqual(set(panel.arbol.class_probabilities), {0, 1, 2, 4})
+        self.assertEqual(panel.parametros_utilizados["continuos"], (0, 3, 4, 7, 9))
+
     def test_panel_defaults_are_lazy_and_match_the_trainer(self):
         import ipywidgets as widgets
 
@@ -46,8 +105,10 @@ class EnrichedTreePanelTests(unittest.TestCase):
         self.assertTrue(controls["sin_limite"].value)
         self.assertTrue(controls["max_depth"].disabled)
         self.assertEqual(controls["min_samples_split"].value, 2)
-        self.assertEqual(controls["continuos"].options, ())
-        self.assertTrue(controls["continuos"].disabled)
+        self.assertEqual(controls["continuos"].options, tuple(
+            (self.ns["columns"][index], index) for index in self.ns["A"]))
+        self.assertEqual(controls["continuos"].value, ())
+        self.assertFalse(controls["continuos"].disabled)
         self.assertTrue(controls["min_peso_rama"].disabled)
         controls["podar"].value = False
         self.assertTrue(controls["confianza"].disabled)
@@ -59,12 +120,13 @@ class EnrichedTreePanelTests(unittest.TestCase):
     def test_click_trains_and_prints_without_replacing_original_models_or_data(self):
         original_tree, original_enriched = self.ns["tree"], self.ns["arbol_enriquecido"]
         before = deepcopy((self.ns["D"], self.ns["A"], self.ns["training_matrix"]))
+        self.panel.controles["continuos"].value = tuple(self.ns["continuos_cleveland"])
         output = self.click()
         self.assertEqual(self.state(self.panel.arbol), self.state(original_enriched))
         expected = io.StringIO()
         with contextlib.redirect_stdout(expected):
             print("Árbol enriquecido entrenado:")
-            self.ns["print_tree"](self.panel.arbol, self.ns["columns"])
+            self.ns["imprimir_arbol_enriquecido"](self.panel.arbol, self.ns["columns"])
             print(f"Distribución de clases en la raíz: {self.panel.arbol.class_probabilities}")
         self.assertTrue(output.endswith(expected.getvalue()), repr(output))
         self.assertIs(self.ns["tree"], original_tree)

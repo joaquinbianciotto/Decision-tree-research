@@ -9,9 +9,16 @@ import json
 import inspect
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).parent
+CLEVELAND_FIXTURE = (
+    "40.0,0.0,1.0,110.0,180.0,0.0,0.0,170.0,0.0,0.5,1.0,0.0,3.0,0\n"
+    "60.0,1.0,4.0,150.0,260.0,1.0,2.0,120.0,1.0,2.5,2.0,2.0,7.0,2\n"
+    "50.0,1.0,3.0,130.0,220.0,0.0,1.0,145.0,0.0,1.0,2.0,?,6.0,4\n"
+    "45.0,0.0,2.0,120.0,200.0,0.0,0.0,160.0,0.0,0.0,1.0,0.0,?,1\n"
+)
 
 
 def execute(cells, *, with_original=False):
@@ -24,7 +31,16 @@ def execute(cells, *, with_original=False):
     stdout, stderr = io.StringIO(), io.StringIO()
     stdout.write(initial_stdout)
     stderr.write(initial_stderr)
-    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+    original_open = Path.open
+
+    def open_fixture(path, *args, **kwargs):
+        # Los tests no requieren descargar ni versionar el dataset ignorado.
+        if path == Path("data/heart-disease/processed.cleveland.data"):
+            return io.StringIO(CLEVELAND_FIXTURE)
+        return original_open(path, *args, **kwargs)
+
+    with patch.object(Path, "open", open_fixture), contextlib.redirect_stdout(stdout), \
+            contextlib.redirect_stderr(stderr):
         for cell in cells:
             exec(compile("".join(cell["source"]), cell["id"], "exec"), namespace)
     return namespace, stdout.getvalue(), stderr.getvalue()
@@ -43,7 +59,7 @@ class TrainingReviewNotebookTests(unittest.TestCase):
         self.assertNotIn("c45-algorithm", ids)
         self.assertLess(ids.index("integration-support"), ids.index("enriched-training"))
         self.assertLess(ids.index("enriched-training"), ids.index("interactive-panel"))
-        for copied, source in zip(self.cells[:3], baseline[:3]):
+        for copied, source in zip(self.cells[1:3], baseline[1:3]):
             copied_ast = ast.parse("".join(copied["source"]))
             source_ast = ast.parse("".join(source["source"]))
             names = {node.name for node in copied_ast.body if isinstance(node, ast.FunctionDef)}
@@ -56,10 +72,45 @@ class TrainingReviewNotebookTests(unittest.TestCase):
         self.assertNotIn("tree", self.ns)
         reference, _, _ = execute(baseline)
         self.assertEqual((self.stdout, self.stderr), ("", ""))
-        self.assertEqual(self.ns["D"], reference["D"])
+        self.assertNotEqual(self.ns["D"], reference["D"])
+        self.assertEqual(reference["columns"], ["Outlook", "Temperature", "Humidity", "Wind", "Play"])
         for cell in self.cells:
             self.assertIsNone(cell["execution_count"])
             self.assertEqual(cell["outputs"], [])
+
+    def test_first_code_cell_loads_cleveland_for_training(self):
+        namespace, stdout, stderr = execute(self.cells[:1])
+        self.assertEqual((stdout, stderr), ("", ""))
+        self.assertEqual(namespace["ruta_cleveland"],
+                         Path("data/heart-disease/processed.cleveland.data"))
+        self.assertEqual(namespace["columnas_cleveland"], [
+            "age", "sex", "cp", "trestbps", "chol", "fbs", "restecg", "thalach",
+            "exang", "oldpeak", "slope", "ca", "thal", "num",
+        ])
+        self.assertEqual(namespace["atributos_cleveland"], list(range(13)))
+        self.assertEqual(namespace["continuos_cleveland"], [0, 3, 4, 7, 9])
+        self.assertIs(namespace["D"], namespace["filas_cleveland"])
+        self.assertIs(namespace["A"], namespace["atributos_cleveland"])
+        self.assertIs(namespace["columns"], namespace["columnas_cleveland"])
+        self.assertEqual(namespace["training_matrix"], [namespace["columns"], *namespace["D"]])
+        self.assertNotIn("Outlook", "".join(self.cells[0]["source"]))
+        self.assertEqual(namespace["filas_cleveland"], [
+            [40.0, 0, 1, 110.0, 180.0, 0, 0, 170.0, 0, 0.5, 1, 0, 3, 0],
+            [60.0, 1, 4, 150.0, 260.0, 1, 2, 120.0, 1, 2.5, 2, 2, 7, 2],
+            [50.0, 1, 3, 130.0, 220.0, 0, 1, 145.0, 0, 1.0, 2, None, 6, 4],
+            [45.0, 0, 2, 120.0, 200.0, 0, 0, 160.0, 0, 0.0, 1, 0, None, 1],
+        ])
+        for row in namespace["filas_cleveland"]:
+            for index, value in enumerate(row):
+                if value is not None:
+                    self.assertIsInstance(value, float if index in namespace["continuos_cleveland"] else int)
+        before = deepcopy(namespace["filas_cleveland"])
+        tree = self.ns["entrenar_arbol_enriquecido"](
+            namespace["filas_cleveland"], namespace["atributos_cleveland"],
+            continuos=namespace["continuos_cleveland"], max_depth=1, podar=False)
+        self.assertEqual(tree.total_weight, 4)
+        self.assertEqual(set(tree.class_probabilities), {0, 1, 2, 4})
+        self.assertEqual(namespace["filas_cleveland"], before)
 
     def test_enriched_core_is_separate_and_directly_recursive_like_baseline(self):
         by_id = {cell["id"]: cell for cell in self.cells}
@@ -108,7 +159,7 @@ class TrainingReviewNotebookTests(unittest.TestCase):
                   for cell in self.notebook["cells"] if cell["cell_type"] == "markdown"]
         self.assertEqual(titles, [
             "# Entrenamiento del árbol de decisión — original y enriquecido",
-            "## 1. Datos de entrada", "## 2. Estructura del árbol",
+            "## 1. Dataset Cleveland", "## 2. Estructura del árbol",
             "## 3. Evaluación de impureza",
             "## 4. Funciones aprobadas y fuentes",
             "## 6. Entrenamiento enriquecido — integración aprobada",
@@ -162,7 +213,10 @@ class TrainingReviewNotebookTests(unittest.TestCase):
         es_desconocido = self.ns["es_desconocido"]
         self.assertTrue(all(es_desconocido(value) for value in (None, "?", float("nan"))))
         self.assertFalse(any(es_desconocido(value) for value in (0, False, "", "sunny")))
-        rows = deepcopy(self.ns["D"])
+        original = json.loads((ROOT / "decision-tree.ipynb").read_text())
+        data_cell = next(cell for cell in original["cells"] if cell["cell_type"] == "code")
+        baseline, _, _ = execute([data_cell])
+        rows = deepcopy(baseline["D"])
         rows[2][0] = "?"
         before = deepcopy(rows)
         stats = self.ns["evaluar_prueba"](rows, 0)
@@ -667,7 +721,7 @@ class EnrichedTrainingTests(unittest.TestCase):
         self.assertEqual((namespace["D"], namespace["A"], namespace["training_matrix"]), old_data)
         self.assertEqual(cells[:-1], before_source)
         tree = namespace["arbol_enriquecido"]
-        distribution = namespace["predecir_probabilidades_enriquecido"](tree, [None] * 4)
+        distribution = namespace["predecir_probabilidades_enriquecido"](tree, [None] * len(namespace["A"]))
         distribution.clear()
         self.assertTrue(tree.class_probabilities)
 
@@ -681,13 +735,16 @@ class EnrichedTrainingTests(unittest.TestCase):
         digest = hashlib.sha256(json.dumps(snapshot, ensure_ascii=False).encode()).hexdigest()
         self.assertEqual(digest, "2bacb63d62d834d2ac49408c3e39b975e89d1e042ea141b9b74d478c9b72d481")
 
-    def test_run_all_demo_is_silent_and_keeps_baseline_data(self):
-        tree = self.ns["arbol_enriquecido"]
-        self.assertEqual(tree.total_weight, 14)
-        self.assertEqual((tree.attribute, tree.threshold, tree.prediction), (0, None, "yes"))
-        self.assertEqual(self.stderr, "")
-        self.assertEqual(self.ns["A"], [0, 1, 2, 3])
-        self.assertEqual(self.probabilities(tree, [None] * 4), {"no": 5 / 14, "yes": 9 / 14})
+    def test_run_all_demo_is_silent_and_uses_only_cleveland(self):
+        notebook = json.loads((ROOT / "decision-tree-training.ipynb").read_text())
+        namespace, stdout, stderr = execute([
+            cell for cell in notebook["cells"] if cell["cell_type"] == "code"])
+        tree = namespace["arbol_enriquecido"]
+        self.assertEqual(tree.total_weight, 4)
+        self.assertEqual((stdout, stderr), ("", ""))
+        self.assertEqual(namespace["A"], list(range(13)))
+        self.assertEqual(namespace["columns"][-1], "num")
+        self.assertEqual(self.probabilities(tree, [None] * 13), {0: .25, 2: .25, 4: .25, 1: .25})
 
 
 def public_api_snapshot():
@@ -750,8 +807,13 @@ def public_api_snapshot():
             observations.append((0, output.getvalue(), errors.getvalue(), state(tree), probabilities, classes))
     signatures = {name: str(inspect.signature(namespace[name])) for name in (
         "entrenar_arbol_enriquecido", "predecir_probabilidades_enriquecido", "predecir_enriquecido")}
+    # Compara el algoritmo con la misma entrada histórica, no con el dataset predeterminado.
+    original = json.loads((ROOT / "decision-tree.ipynb").read_text())
+    data_cell = next(cell for cell in original["cells"] if cell["cell_type"] == "code")
+    baseline, _, _ = execute([data_cell])
+    demo = namespace["entrenar_arbol_enriquecido"](baseline["D"], baseline["A"])
     return {"execution": (0, stdout, stderr), "signatures": signatures,
-            "demo": state(namespace["arbol_enriquecido"]), "cases": observations}
+            "demo": state(demo), "cases": observations}
 
 
 if __name__ == "__main__":
