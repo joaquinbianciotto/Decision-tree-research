@@ -7,8 +7,10 @@ import ast
 import contextlib
 import io
 import importlib.util
+import inspect
 import json
 from pathlib import Path
+import re
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -22,8 +24,8 @@ if HAS_MATPLOTLIB:
 
 NOTEBOOK = Path(__file__).with_name("decision-tree.ipynb")
 SCORE_LINES = (
-    "            score = gain  # Information Gain\n",
-    "            # score = gain / split_info if split_info else 0.0  # Gain Ratio\n",
+    "score = gain  # Information Gain",
+    "# score = gain / split_info if split_info else 0.0  # Gain Ratio",
 )
 
 
@@ -77,13 +79,20 @@ class DecisionTreeNotebookTests(unittest.TestCase):
             dict(cell, source=cell["source"].copy())
             for cell in self.notebook["cells"] if cell["cell_type"] == "code"
         ]
-        training_source = "".join(self.cells[3]["source"])
-        pair = "".join(SCORE_LINES)
-        self.assertEqual(training_source.count(pair), 1)
+        self.criterion_cell = next(cell for cell in self.cells
+                                   if SCORE_LINES[0] in "".join(cell["source"]))
+        training_source = "".join(self.criterion_cell["source"])
+        pattern = (r"(?m)^([ \t]*)" + re.escape(SCORE_LINES[0])
+                   + r"\n\1" + re.escape(SCORE_LINES[1]) + r"\n")
+        matches = list(re.finditer(pattern, training_source))
+        self.assertEqual(len(matches), 1)
         if self.use_gain_ratio:
-            switched = (SCORE_LINES[0].replace("score =", "# score =", 1)
-                        + SCORE_LINES[1].replace("# score =", "score =", 1))
-            self.cells[3]["source"] = training_source.replace(pair, switched, 1).splitlines(keepends=True)
+            indent = matches[0].group(1)
+            switched = (indent + SCORE_LINES[0].replace("score =", "# score =", 1) + "\n"
+                        + indent + SCORE_LINES[1].replace("# score =", "score =", 1) + "\n")
+            self.criterion_cell["source"] = re.sub(
+                pattern, lambda _: switched, training_source, count=1
+            ).splitlines(keepends=True)
         self.namespace = {}
         self.outputs = []
         for index, cell in enumerate(self.cells, start=1):
@@ -94,6 +103,14 @@ class DecisionTreeNotebookTests(unittest.TestCase):
                     self.namespace,
                 )
             self.outputs.append(output.getvalue())
+
+    def cell_defining(self, name):
+        matches = [cell for cell in self.cells
+                   if any(isinstance(node, (ast.FunctionDef, ast.ClassDef))
+                          and node.name == name
+                          for node in ast.parse("".join(cell["source"])).body)]
+        self.assertEqual(len(matches), 1, f"Expected one definition of {name}")
+        return matches[0]
 
     def train(self, rows, attributes, **options):
         before_rows = [row.copy() for row in rows]
@@ -107,16 +124,47 @@ class DecisionTreeNotebookTests(unittest.TestCase):
         self.assertEqual(stderr.getvalue(), "")
         return tree
 
-    def test_five_cells_and_library_constraints(self):
+    def test_ordered_cells_and_library_constraints(self):
         self.assertEqual(self.notebook["nbformat"], 4)
-        self.assertEqual(len(self.cells), 5)
-        for index, cell in enumerate(self.cells):
+        helpers = self.cell_defining("make_leaf")
+        algorithm = self.cell_defining("decision_tree")
+        drawing = self.cell_defining("tree_layout")
+        groups = [helpers, algorithm, drawing]
+        indices = [self.cells.index(cell) for cell in groups]
+        self.assertEqual(indices, list(range(indices[0], indices[0] + 3)))
+        expected_names = [
+            {"majority_class", "make_leaf", "predict_one"},
+            {"decision_tree"},
+            {"print_tree", "tree_layout", "plot_tree"},
+        ]
+        for cell, names in zip(groups, expected_names):
+            with self.subTest(cell=cell["id"]):
+                body = ast.parse("".join(cell["source"])).body
+                self.assertTrue(all(isinstance(node, ast.FunctionDef) for node in body))
+                self.assertEqual({node.name for node in body}, names)
+                self.assertEqual(len(body), len(names))
+                self.assertEqual(cell["outputs"], [])
+                self.assertIsNone(cell["execution_count"])
+        self.assertEqual(algorithm["id"], "c45-algorithm")
+        execution = self.cells[indices[-1] + 1]
+        body = ast.parse("".join(execution["source"])).body
+        self.assertEqual(len(body), 2)
+        self.assertIsInstance(body[0], ast.Assign)
+        self.assertEqual(ast.unparse(body[0].targets[0]), "tree")
+        self.assertEqual(ast.unparse(body[1]), "plot_tree(tree, columns)")
+        self.assertLess(self.cells.index(self.cell_defining("Node")), indices[0])
+        self.assertLess(self.cells.index(self.cell_defining("split_information")), indices[0])
+        self.assertGreater(self.cells.index(next(cell for cell in self.cells
+                                                if cell["id"] == "test-accuracy")),
+                           self.cells.index(execution))
+        node_cell = self.cell_defining("Node")
+        for cell in self.cells:
             imports = [
                 node
                 for node in ast.walk(ast.parse("".join(cell["source"])))
                 if isinstance(node, (ast.Import, ast.ImportFrom))
             ]
-            if index == 1:
+            if cell is node_cell:
                 self.assertEqual(imports, [])
             for node in imports:
                 modules = (
@@ -124,7 +172,7 @@ class DecisionTreeNotebookTests(unittest.TestCase):
                     if isinstance(node, ast.ImportFrom)
                     else [alias.name for alias in node.names]
                 )
-                allowed = {"matplotlib.pyplot"} if index == 3 else {"collections", "math"}
+                allowed = {"matplotlib.pyplot"} if cell is drawing else {"collections", "math"}
                 self.assertTrue(set(modules) <= allowed)
 
     def test_labeled_training_matrix_has_class_last(self):
@@ -139,12 +187,13 @@ class DecisionTreeNotebookTests(unittest.TestCase):
         node = self.namespace["Node"]("yes")
         self.assertEqual(node.prediction, "yes")
         self.assertIsNone(node.attribute)
-        self.assertIsNone(node.threshold)
+        self.assertFalse(hasattr(node, "threshold"))
         self.assertEqual(node.children, {})
         self.assertIsNone(node.sample_count)
         self.assertIsNone(node.predicted_class_count)
-        branch = self.namespace['Node']('yes', 0, 1.5)
-        self.assertEqual((branch.attribute, branch.threshold), (0, 1.5))
+        branch = self.namespace['Node']('yes', 0)
+        self.assertEqual(branch.attribute, 0)
+        self.assertEqual(branch.children, {})
 
     def test_entropy_and_weighted_conditional_entropy(self):
         entropy = self.namespace["impurityEval_1"]
@@ -155,7 +204,35 @@ class DecisionTreeNotebookTests(unittest.TestCase):
         self.assertAlmostEqual(entropy(self.namespace["D"]), 0.9402859586706311)
         self.assertAlmostEqual(conditional(0, self.namespace["D"]), 0.6935361388961918)
         self.assertEqual(conditional(0, []), 0.0)
-        self.assertEqual(conditional(0, [[1, "no"], [2, "yes"]], 1.5), 0.0)
+        self.assertEqual(conditional(0, [[1, "no"], [2, "yes"]]), 0.0)
+
+    def test_categorical_helpers_expose_no_numeric_cut_api(self):
+        cases = [
+            ("Node", "(prediction, attribute=None)", ("yes", 0)),
+            ("partition", "(Ai, D)", (0, [[1, "no"], [2, "yes"]])),
+            ("impurityEval_2", "(Ai, D)", (0, [[1, "no"], [2, "yes"]])),
+        ]
+        for name, signature, arguments in cases:
+            with self.subTest(helper=name):
+                helper = self.namespace[name]
+                self.assertEqual(str(inspect.signature(helper)), signature)
+                with self.assertRaises(TypeError):
+                    helper(*arguments, 1.5)
+                with self.assertRaises(TypeError):
+                    helper(*arguments, threshold=1.5)
+
+    def test_notebook_code_has_no_numeric_cut_state_or_labels(self):
+        for cell in self.cells:
+            with self.subTest(cell=cell["id"]):
+                module = ast.parse("".join(cell["source"]))
+                identifiers = [
+                    node.attr if isinstance(node, ast.Attribute)
+                    else node.arg if isinstance(node, ast.arg) else node.id
+                    for node in ast.walk(module)
+                    if isinstance(node, (ast.Attribute, ast.arg, ast.Name))
+                ]
+                self.assertNotIn("threshold", identifiers)
+                self.assertNotIn("'<='", "".join(cell["source"]))
 
     def test_split_information_uses_branch_proportions(self):
         split_info = self.namespace["split_information"]
@@ -173,10 +250,126 @@ class DecisionTreeNotebookTests(unittest.TestCase):
     def test_criterion_switch_does_not_change_notebook_on_disk(self):
         self.assertEqual(NOTEBOOK.read_text(encoding="utf-8"), self.original_source)
         active = SCORE_LINES[1].replace("# score =", "score =", 1) if self.use_gain_ratio else SCORE_LINES[0]
-        self.assertIn(active, self.cells[3]["source"])
+        self.assertIn(active, [line.strip() for line in self.criterion_cell["source"]])
+
+    def test_main_stopping_contract_and_support(self):
+        mixed = [["a", "no"], ["b", "yes"], ["c", "yes"]]
+        cases = [
+            (mixed[:1], [0], None, 2, 0, "no", 1, 1),
+            (mixed, [], None, 2, 0, "yes", 3, 2),
+            (mixed, [0], 2, 2, 2, "yes", 3, 2),
+            (mixed, [0], None, 4, 0, "yes", 3, 2),
+        ]
+        for rows, attributes, maximum, minimum, depth, prediction, total, matching in cases:
+            with self.subTest(attributes=attributes, maximum=maximum, minimum=minimum):
+                leaf = self.train(rows, attributes, max_depth=maximum,
+                                  min_samples_split=minimum, depth=depth)
+                self.assertIsNone(leaf.attribute)
+                self.assertEqual(leaf.children, {})
+                self.assertEqual((leaf.prediction, leaf.sample_count,
+                                  leaf.predicted_class_count), (prediction, total, matching))
+        self.assertEqual(self.train(mixed, [0], max_depth=2,
+                                    min_samples_split=3, depth=1).attribute, 0)
+        self.assertEqual(self.train(mixed, [0]).attribute, 0)
+
+    def test_main_stops_keep_order_and_bypass_impurity_evaluation(self):
+        stop = self.namespace["decision_tree"]
+        mixed = [["a", "no"], ["b", "yes"]]
+        # Unreachable later controls deliberately cannot be compared to integers.
+        self.assertEqual(stop(mixed[:1], [0], max_depth=object(),
+                              min_samples_split=object()).prediction, "no")
+        self.assertEqual(stop(mixed, [], max_depth=object(),
+                              min_samples_split=object()).prediction, "no")
+        self.assertEqual(stop(mixed, [0], max_depth=0,
+                              min_samples_split=object()).prediction, "no")
+        entropy = MagicMock(side_effect=AssertionError("Stopped nodes must not be scored"))
+        conditional = MagicMock(side_effect=AssertionError("Stopped nodes must not be scored"))
+        with patch.dict(self.namespace, impurityEval_1=entropy, impurityEval_2=conditional):
+            for rows, attributes, options in (
+                (mixed[:1], [0], {}), (mixed, [], {}),
+                (mixed, [0], {"max_depth": 0}),
+                (mixed, [0], {"min_samples_split": 3}),
+            ):
+                self.assertIsNone(self.train(rows, attributes, **options).attribute)
+        entropy.assert_not_called()
+        conditional.assert_not_called()
+
+    def test_main_evaluates_every_attribute_and_keeps_winner_and_ties(self):
+        rows = raw_gain_tradeoff_rows()
+        before = [row.copy() for row in rows]
+        attributes = [0, 1]
+        conditional = MagicMock(wraps=self.namespace["impurityEval_2"])
+        with patch.dict(self.namespace, impurityEval_2=conditional):
+            tree = self.train(rows, attributes, max_depth=1)
+        attribute = tree.attribute
+        self.assertEqual(attribute, 1 if self.use_gain_ratio else 0)
+        self.assertEqual([call.args for call in conditional.call_args_list],
+                         [(0, rows), (1, rows)])
+        self.assertEqual(rows, before)
+        self.assertEqual(attributes, [0, 1])
+        tied = [["a", "x", "no"], ["b", "y", "yes"]]
+        for order in ([0, 1], [1, 0]):
+            self.assertEqual(self.train(tied, order, min_gain=1).attribute, order[0])
+        self.assertEqual(self.train([["a", "yes"], ["a", "no"]], [0],
+                                    min_gain=0).attribute, 0)
+
+    def test_training_uses_impurity_results_for_weighted_raw_gain(self):
+        rows = [["a", "no"], ["b", "yes"]]
+        for minimum, expected in ((0.125, 0), (0.126, None)):
+            with self.subTest(min_gain=minimum):
+                entropy = MagicMock(return_value=0.75)
+                conditional = MagicMock(return_value=0.25)
+                with patch.dict(self.namespace, impurityEval_1=entropy,
+                                impurityEval_2=conditional):
+                    tree = self.train(rows, [0], min_gain=minimum, n_total=8)
+                self.assertEqual(tree.attribute, expected)
+                entropy.assert_called_once_with(rows)
+                conditional.assert_called_once_with(0, rows)
+
+    def test_main_visibly_follows_pseudocode_control_flow(self):
+        training = ast.parse("".join(self.cell_defining("decision_tree")["source"])).body[0]
+        decisions = [node for node in training.body if isinstance(node, ast.If)]
+        # The only preceding conditional may initialize the original training count.
+        self.assertEqual(ast.unparse(decisions[0].test), "n_total is None")
+        purity = decisions[1]
+        self.assertEqual(ast.unparse(purity.test), "len(classes) == 1")
+        attributes = purity.orelse[0]
+        self.assertEqual(ast.unparse(attributes.test), "not A")
+        depth = attributes.orelse[0]
+        self.assertEqual(ast.unparse(depth.test), "max_depth is not None and depth >= max_depth")
+        samples = depth.orelse[0]
+        self.assertEqual(ast.unparse(samples.test), "len(D) < min_samples_split")
+        splitting = samples.orelse
+        self.assertEqual(ast.unparse(splitting[0]), "p0 = impurityEval_1(D)")
+        evaluation = next(node for node in splitting if isinstance(node, ast.For))
+        self.assertEqual((ast.unparse(evaluation.target), ast.unparse(evaluation.iter)), ("Ai", "A"))
+        self.assertEqual(ast.unparse(evaluation.body[0]), "pi = impurityEval_2(Ai, D)")
+        self.assertEqual(ast.unparse(evaluation.body[-1]), "scores.append((Ai, pi, score))")
+        selection = next(node for node in splitting if isinstance(node, ast.Assign)
+                         and any(isinstance(name, ast.Name) and name.id == "Ag"
+                                 for name in ast.walk(node.targets[0])))
+        self.assertIn("pg", ast.unparse(selection.targets[0]))
+        self.assertLess(splitting.index(evaluation), splitting.index(selection))
+        minimum = next(node for node in splitting if isinstance(node, ast.If))
+        self.assertEqual(ast.unparse(minimum.test), "weighted_gain < min_gain")
+        self.assertEqual(ast.unparse(minimum.body[0]), "return make_leaf(D, majority_class(D))")
+        self.assertIn("weighted_gain = len(D) / n_total * (p0 - pg)",
+                      [ast.unparse(node) for node in splitting if isinstance(node, ast.Assign)])
+        construction = minimum.orelse
+        self.assertEqual(ast.unparse(construction[0]), "node = Node(majority_class(D), attribute=Ag)")
+        self.assertEqual(ast.unparse(construction[1]), "groups = partition(Ag, D)")
+        branches = next(node for node in construction if isinstance(node, ast.For))
+        self.assertEqual(ast.unparse(branches.iter), "groups.items()")
+        nonempty = branches.body[0]
+        self.assertIsInstance(nonempty, ast.If)
+        self.assertEqual(ast.unparse(nonempty.test), "group")
+        self.assertEqual(nonempty.body[0].value.func.id, "decision_tree")
+        self.assertEqual(ast.unparse(construction[-1]), "return node")
+        self.assertNotIn("stopping_leaf", self.namespace)
+        self.assertNotIn("select_best_attribute", self.namespace)
 
     def test_training_uses_direct_recursion_without_nested_helpers(self):
-        module = ast.parse("".join(self.cells[3]["source"]))
+        module = ast.parse("".join(self.cell_defining("decision_tree")["source"]))
         training = next(node for node in module.body
                          if isinstance(node, ast.FunctionDef) and node.name == "decision_tree")
         self.assertEqual([argument.arg for argument in training.args.args],
@@ -201,9 +394,10 @@ class DecisionTreeNotebookTests(unittest.TestCase):
                           ("min_samples_split", "min_samples_split"),
                           ("depth", "depth + 1"),
                           ("n_total", "n_total")])
-        helpers = {node.name for node in module.body if isinstance(node, ast.FunctionDef)}
+        notebook_module = ast.parse("\n".join("".join(cell["source"]) for cell in self.cells))
+        helpers = {node.name for node in notebook_module.body if isinstance(node, ast.FunctionDef)}
         self.assertTrue({"predict_one", "print_tree"} <= helpers)
-        example = next(node.value for node in module.body if isinstance(node, ast.Assign)
+        example = next(node.value for node in notebook_module.body if isinstance(node, ast.Assign)
                        and any(isinstance(target, ast.Name) and target.id == "tree"
                                for target in node.targets))
         self.assertEqual([argument.id for argument in example.args], ["D", "A"])
@@ -344,13 +538,71 @@ class DecisionTreeNotebookTests(unittest.TestCase):
         rows = [[1, "no"], [2, "no"], [3, "yes"], [4, "yes"], [5, "no"], [6, "no"]]
         tree = self.train(rows, [0])
         self.assertEqual(tree.attribute, 0)
-        self.assertIsNone(tree.threshold)
+        self.assertFalse(hasattr(tree, "threshold"))
         self.assertEqual(set(tree.children), {1, 2, 3, 4, 5, 6})
         self.assertTrue(all(child.attribute is None for child in tree.children.values()))
         self.assertEqual(
             [self.namespace["predict_one"](tree, row[:-1]) for row in rows],
             [row[-1] for row in rows],
         )
+
+    def test_repeated_numeric_categories_preserve_groups_and_numeric_classes(self):
+        rows = [[-1, 0], [-1, 0], [-1, 7], [2.5, 7], [2.5, 7], [9, 0]]
+        groups = self.namespace["partition"](0, rows)
+        self.assertEqual(list(groups), [-1, 2.5, 9])
+        self.assertEqual(groups, {-1: rows[:3], 2.5: rows[3:5], 9: rows[5:]})
+        self.assertTrue(all(actual is expected for actual, expected in
+                            zip(groups[-1], rows[:3])))
+        self.assertEqual(self.namespace["partition"](0, []), {})
+        self.assertAlmostEqual(self.namespace["impurityEval_2"](0, rows),
+                               3 / 6 * self.namespace["impurityEval_1"](rows[:3]))
+        tree = self.train(rows, [0])
+        self.assertEqual(list(tree.children), [-1, 2.5, 9])
+        for value, prediction, count, matching in ((-1, 0, 3, 2), (2.5, 7, 2, 2), (9, 0, 1, 1)):
+            with self.subTest(value=value):
+                leaf = tree.children[value]
+                self.assertIsNone(leaf.attribute)
+                self.assertEqual((leaf.prediction, leaf.sample_count,
+                                  leaf.predicted_class_count), (prediction, count, matching))
+                self.assertEqual(self.namespace["predict_one"](tree, [value]), prediction)
+
+    def test_unseen_numeric_categories_use_current_majority_not_intervals(self):
+        tree = self.train([[1, 0], [1, 0], [4, 7], [8, 7], [8, 7]], [0])
+        predict = self.namespace["predict_one"]
+        for value in (-10, 1.5, 2, 6, 100):
+            with self.subTest(unseen=value):
+                self.assertNotIn(value, tree.children)
+                self.assertEqual(predict(tree, [value]), 7)
+        self.assertEqual(predict(tree, [1]), 0)
+        # Both criteria select attribute 0; the left child's majority is local.
+        rows = [["left", 1, 0], ["left", 1, 0], ["left", 4, 7],
+                ["right", 1, 7], ["right", 4, 7], ["right", 8, 7]]
+        nested = self.train(rows, [0, 1], min_gain=0)
+        self.assertEqual(nested.attribute, 0)
+        self.assertEqual(nested.prediction, 7)
+        self.assertEqual(nested.children["left"].attribute, 1)
+        self.assertEqual(predict(nested, ["left", 2]), 0)
+        self.assertEqual(predict(nested, ["left", 4]), 7)
+
+    def test_numeric_category_text_and_layout_labels_are_literal_values(self):
+        tree = self.train([[-1, 0], [2.5, 7], [9, 7]], [0])
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.namespace["print_tree"](tree, ["Feature"])
+        self.assertEqual(output.getvalue(),
+                         "Feature\n  [-1]\n    Class: 0\n  [2.5]\n    Class: 7\n"
+                         "  [9]\n    Class: 7\n")
+        nodes, edges = self.namespace["tree_layout"](tree)
+        self.assertEqual(len(nodes), 4)
+        self.assertEqual([label for _, _, label in edges], ["-1", "2.5", "9"])
+        pyplot, fig, ax = MagicMock(), MagicMock(), MagicMock()
+        pyplot.subplots.return_value = fig, ax
+        with patch.dict("sys.modules", {"matplotlib": MagicMock(pyplot=pyplot),
+                                        "matplotlib.pyplot": pyplot}):
+            self.namespace["plot_tree"](tree, ["Feature"])
+        self.assertEqual([call.args[2] for call in ax.text.call_args_list],
+                         ["-1", "2.5", "9", "Class: 0\n1/1", "Class: 7\n1/1",
+                          "Class: 7\n1/1", "Feature"])
 
     def test_stopping_rules_and_unseen_category_fallback(self):
         predict = self.namespace["predict_one"]
