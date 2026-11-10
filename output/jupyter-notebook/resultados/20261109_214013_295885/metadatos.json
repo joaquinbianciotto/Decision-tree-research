@@ -1,0 +1,26 @@
+{
+  "dataset": "UCI Heart Disease, id 45",
+  "clases": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "registros_completos": 297,
+  "registros_desarrollo": 237,
+  "registros_reserva": 60,
+  "semilla_reserva": 55,
+  "semilla_folds": 42,
+  "particiones": 5,
+  "semilla_rf": 42,
+  "margen_f1_macro": 0.01,
+  "sha256_codigo_dt": "dc5c6b2a0667491f176dd0d11dfc882282555af68856dee8fa0b567d2950d808",
+  "sha256_datos": "ec46efa976f55630f73fbbf5783dbb90ae7f8f20b42b6f4fdd43392a10c93623",
+  "ids_originales": "Índice original UCI antes de eliminar faltantes (base cero)",
+  "version_python": "3.14.4",
+  "version_numpy": "2.5.4",
+  "version_pandas": "3.1.1",
+  "version_sklearn": "1.9.1",
+  "evaluacion_reserva": "La partición con semilla 55 ya tuvo un resultado guardado en el DT original."
+}
