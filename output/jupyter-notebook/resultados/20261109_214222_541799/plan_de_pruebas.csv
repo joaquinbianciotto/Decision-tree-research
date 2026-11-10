@@ -1,0 +1,52 @@
+prueba,modelo,parametro,valor,config_id
+Referencia,DT,configuración base,base,3967b9adcbe7ed3e
+Referencia,RF,configuración base,base,564f963f5196a713
+Ganancia mínima,DT,min_gain,1e-12,3967b9adcbe7ed3e
+Ganancia mínima,DT,min_gain,0.0,a15159c9bf52df35
+Ganancia mínima,DT,min_gain,0.001,f6317ef5fb538e1a
+Ganancia mínima,DT,min_gain,0.005,96c47b252c349954
+Ganancia mínima,DT,min_gain,0.01,0c545fa79de79844
+Ganancia mínima,DT,min_gain,0.05,b9203db29b45d4dc
+Ganancia mínima,RF,min_impurity_decrease,0.0,564f963f5196a713
+Ganancia mínima,RF,min_impurity_decrease,0.001,e7af93c7a3d60523
+Ganancia mínima,RF,min_impurity_decrease,0.005,8c2fe26708e7a4df
+Ganancia mínima,RF,min_impurity_decrease,0.01,5c8eeb7a10be8260
+Ganancia mínima,RF,min_impurity_decrease,0.05,94dfd47aaa9575ec
+Profundidad máxima,DT,max_depth,1,3e08495559de7a15
+Profundidad máxima,DT,max_depth,2,8f5ec1c7076f8ad6
+Profundidad máxima,DT,max_depth,4,5eaf2379972aa205
+Profundidad máxima,DT,max_depth,6,7ce7a4616d1c312c
+Profundidad máxima,DT,max_depth,10,88988429b1fadc5e
+Profundidad máxima,DT,max_depth,sin límite,3967b9adcbe7ed3e
+Profundidad máxima,RF,max_depth,1,3d513507c3d701ff
+Profundidad máxima,RF,max_depth,2,b6b8b2e3d9ab1dc6
+Profundidad máxima,RF,max_depth,4,ec96bc870e16cb50
+Profundidad máxima,RF,max_depth,6,4ec36a8b2e1dd43f
+Profundidad máxima,RF,max_depth,10,8fbfbd1f1d2b6b86
+Profundidad máxima,RF,max_depth,sin límite,564f963f5196a713
+Mínimo para dividir,DT,min_samples_split,2,3967b9adcbe7ed3e
+Mínimo para dividir,DT,min_samples_split,10,b58a3cfbb1b8ffa3
+Mínimo para dividir,DT,min_samples_split,25,c1974ee3416bbc0d
+Mínimo para dividir,DT,min_samples_split,50,c1ed89ef98ea05a8
+Mínimo para dividir,DT,min_samples_split,100,0999293c986aee83
+Mínimo para dividir,RF,min_samples_split,2,564f963f5196a713
+Mínimo para dividir,RF,min_samples_split,10,1755f7c3bca7bbd9
+Mínimo para dividir,RF,min_samples_split,25,acfadb2f9aa5fb37
+Mínimo para dividir,RF,min_samples_split,50,3b379d58f4f08eb7
+Mínimo para dividir,RF,min_samples_split,100,108719d494ce615e
+Profundidad + mínimo,DT,max_depth + min_samples_split,4 + 2,5eaf2379972aa205
+Profundidad + mínimo,DT,max_depth + min_samples_split,4 + 10,04fd5c70a53a8841
+Profundidad + mínimo,DT,max_depth + min_samples_split,4 + 50,80e26f9efe488386
+Profundidad + mínimo,DT,max_depth + min_samples_split,6 + 2,7ce7a4616d1c312c
+Profundidad + mínimo,DT,max_depth + min_samples_split,6 + 10,b0e013ee12b1628e
+Profundidad + mínimo,DT,max_depth + min_samples_split,6 + 50,de3d498df4c7fcf3
+Profundidad + mínimo,RF,max_depth + min_samples_split,4 + 2,ec96bc870e16cb50
+Profundidad + mínimo,RF,max_depth + min_samples_split,4 + 10,40479bd040da8ff3
+Profundidad + mínimo,RF,max_depth + min_samples_split,4 + 50,da622ba0936f8083
+Profundidad + mínimo,RF,max_depth + min_samples_split,6 + 2,4ec36a8b2e1dd43f
+Profundidad + mínimo,RF,max_depth + min_samples_split,6 + 10,cf27b628191f7f23
+Profundidad + mínimo,RF,max_depth + min_samples_split,6 + 50,cd0890adfe0c2bd0
+Cantidad de árboles,RF,n_estimators,10,3fec2f0e3761dd0a
+Cantidad de árboles,RF,n_estimators,50,3f90ebeb6f57e3df
+Cantidad de árboles,RF,n_estimators,100,564f963f5196a713
+Cantidad de árboles,RF,n_estimators,200,d548f5b4cc2636e1
